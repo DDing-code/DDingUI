@@ -13,6 +13,7 @@ L["ADDON_LOADED"] = "|cFF00FF00[DDingUI Toolkit]|r Loaded. Type /ddt for setting
 L["ENABLED"] = "Enabled"
 L["DISABLED"] = "Disabled"
 L["SETTINGS"] = "Settings"
+L["APPEARANCE"] = "Appearance"
 L["POSITION_RESET"] = "Position has been reset."
 L["POSITION_LOCKED"] = "Position Locked"
 L["SCALE"] = "Scale"
@@ -72,7 +73,6 @@ L["TAB_COMBATTIMER"] = "Combat Timer"
 L["TAB_CHARACTERPOSITIONMARKER"] = "Character Position Marker"
 L["TAB_RANGEDISPLAY"] = "Range Display"
 L["TAB_PARTYTRACKER"] = "Party Tracker"
-L["TAB_MYTHICPLUS"] = "M+ Helper"
 L["TAB_GOLDSPLIT"] = "Calculator"
 L["TAB_DURABILITY"] = "Durability"
 L["TAB_CASTINGALERT"] = "Target Spell"
@@ -443,7 +443,6 @@ L["MODULE_COMBATTIMER"] = "CombatTimer - Combat Timer"
 L["MODULE_CHARACTERPOSITIONMARKER"] = "CharacterPositionMarker - Player position marker"
 L["MODULE_RANGEDISPLAY"] = "RangeDisplay - Target/focus range display"
 L["MODULE_PARTYTRACKER"] = "Party Status - Battle Res/Bloodlust/Healer Mana"
-L["MODULE_MYTHICPLUS"] = "MythicPlusHelper - Dungeon Teleport"
 L["MODULE_GOLDSPLIT"] = "GoldSplit - Gold Split Calculator"
 L["MODULE_DURABILITY"] = "DurabilityCheck - Durability Alert"
 L["MODULE_CASTINGALERT"] = "Target Spell - Enemy cast alerts"
@@ -832,11 +831,6 @@ L["PARTYTRACKER_SHOW_TIME"] = "Show Time"
 -- ==========================================
 -- MythicPlusHelper Module
 -- ==========================================
-L["MYTHICPLUS_TITLE"] = "Mythic+ Helper"
-L["MYTHICPLUS_DESC"] = "Useful tools for mythic+ dungeons."
-L["MYTHICPLUS_DEATH_COUNTER"] = "Death Counter"
-L["MYTHICPLUS_TIMER"] = "Timer"
-L["MYTHICPLUS_ENEMY_FORCES"] = "Enemy Forces"
 
 -- ==========================================
 -- GoldSplit Module
@@ -1136,15 +1130,6 @@ L["PARTYTRACKER_HEALERS_TEXT"] = "• Restoration Druid\n• Holy/Discipline Pri
 -- ==========================================
 -- MythicPlusHelper Extended
 -- ==========================================
-L["MYTHICPLUS_TITLE_FULL"] = "Mythic+ Dungeon Helper"
-L["MYTHICPLUS_DESC_FULL"] = "Shows dungeon name, completion level, and score on dungeon icons\nin the M+ tab, and casts teleport on click."
-L["MYTHICPLUS_ENABLE_OVERLAY"] = "Enable Overlay"
-L["MYTHICPLUS_SHOW_TELEPORTS"] = "Show Dungeon Teleports"
-L["MYTHICPLUS_SHOW_SCORE"] = "Show Dungeon Score"
-L["MYTHICPLUS_TEXT_SIZE"] = "Text Size"
-L["MYTHICPLUS_OPEN_TAB"] = "Open M+ Dungeon Tab"
-L["MYTHICPLUS_USAGE_TITLE"] = "Usage"
-L["MYTHICPLUS_USAGE_TEXT"] = "- Use /ddt tp command to open M+ dungeon tab\n- Dungeon name abbreviation shows above icon\n- Large number in center is highest completed level\n- Number below is dungeon score\n- Color changes based on score (white→green→blue→purple→orange)\n- Clicking dungeon icon casts teleport\n- Teleport is learned after completing +20 or higher"
 
 -- ==========================================
 -- GoldSplit Extended
@@ -1222,7 +1207,6 @@ L["LFGALERT_APPLICANTS_ARRIVED"] = "%d new applicant(s) arrived!"
 L["GOLDSPLIT_RESET_DONE"] = "Distribution amount has been reset."
 
 -- MythicPlusHelper
-L["MYTHICPLUS_ENABLED_MSG"] = "MythicPlusHelper enabled (M+ dungeon tab enhanced)"
 
 -- PartyTracker
 L["PARTYTRACKER_TEST_END"] = "PartyTracker test mode ended"
@@ -1370,10 +1354,6 @@ L["NEW_MODULE_POPUP_VCH_DESC"] = "Register BIS targets by specialization and ins
 L["DURABILITY_REPAIR_NEEDED"] = "Repair Needed"
 
 -- MythicPlusHelper tooltips
-L["MYTHICPLUS_NO_TELEPORT_INFO"] = "Teleport spell info not available"
-L["MYTHICPLUS_NOT_LEARNED"] = "Not learned (+20 clear required)"
-L["MYTHICPLUS_AVAILABLE"] = "Available"
-L["MYTHICPLUS_WEEKLY_COUNT"] = "Weekly keystones: %d"
 
 -- ==========================================
 -- SkyridingTracker Module
@@ -1787,3 +1767,12 @@ L["RCA_STATUS_MATCH"] = "Match"
 L["RCA_ROW_RUNE"] = "Augment rune"
 L["RCA_TALENT_CLICK_HINT"] = "Click to open the talent window."
 L["RCA_REPORT_NOW_DESC"] = "Posts the current check result once to party or raid chat."
+
+L["SETTING_ENEMIES_IN_COMBAT"] = "Track enemies in combat only"
+L["SETTING_IGNORE_MINOR"] = "Ignore minor enemies"
+L["SETTING_SCAN_DELAY"] = "Display delay (seconds)"
+L["SETTING_RANGE_INTERVAL"] = "Range check interval (seconds)"
+L["SETTING_ORDER_FONT_SIZE"] = "Order number size"
+L["SETTING_ROSTER_INTERVAL"] = "Roster check interval (seconds)"
+L["SETTING_STRATA_FULLSCREEN"] = "Fullscreen dialog"
+L["SETTING_DEFAULT_WARNING"] = "Default warning sound"

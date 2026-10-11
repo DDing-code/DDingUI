@@ -29,7 +29,6 @@ ns.defaults = {
             PartyTracker = true,
             DeathAlert = true,
             DeathReleaseGuard = true,
-            MythicPlusHelper = true,
             GoldSplit = true,
             DurabilityCheck = true,
 
@@ -514,13 +513,6 @@ ns.defaults = {
             },
         },
 
-        -- MythicPlusHelper 설정
-        MythicPlusHelper = {
-            enabled = true,
-            showTeleports = true,
-            showScore = true,
-            scale = 1.0,
-        },
 
         -- GoldSplit (쌀숭이) 설정
         GoldSplit = {

@@ -80,19 +80,6 @@ local function SlashHandler(msg)
             DDingToolKit:OpenConfig("Notepad")
         end
 
-    elseif command == "tp" or command == "teleport" then
-        -- 던전 텔레포트 (신화+ 탭 열기)
-        local mythicPlusHelper = ns.MythicPlusHelper
-        if mythicPlusHelper and mythicPlusHelper.Toggle then
-            mythicPlusHelper:Toggle()
-        else
-            -- PVE 프레임 직접 열기
-            PVEFrame_ToggleFrame("ChallengesFrame")
-        end
-
-    elseif command == "affix" then
-        ns.AffixProbe:Command(arg)
-
     elseif command == "enable" then
         -- 모듈 활성화
         if arg and arg ~= "" then
@@ -163,8 +150,6 @@ local function SlashHandler(msg)
         print("  /ddt trail toggle - Toggle cursor trail")
         print("  /ddt ilvl - Open ItemLevel settings")
         print("  /ddt notepad - Open Notepad")
-        print("  /ddt tp - Open M+ Teleport window")
-        print("  /ddt affix - Affix signal diagnostic commands")
         print("  /ddt enable <module> - Enable module")
         print("  /ddt disable <module> - Disable module")
         print("  /ddt list - List all modules")

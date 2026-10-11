@@ -183,7 +183,7 @@ local function IsPreviewing()
 end
 
 local function IsDirectDragPreview()
-    return configPreview or manualPreview
+    return false -- [REFACTOR] Movement belongs to the shared edit mode.
 end
 
 local function BuildSpellIDMap()
@@ -458,6 +458,8 @@ local function StyleButton(button)
     regions.cooldown:SetDrawSwipe(db.showSwipe ~= false)
     regions.cooldown:SetReverse(true)
     regions.duration:SetFont(font, fontSize, outline)
+    regions.duration:SetTextColor(GetColor(db.durationTextColor, COLOR_DEFAULTS.duration))
+    regions.duration:SetShown(db.showDuration ~= false)
 end
 
 local function CreateBorderRegions(parent, button)

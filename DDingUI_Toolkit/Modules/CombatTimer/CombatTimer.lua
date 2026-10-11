@@ -71,24 +71,10 @@ function CombatTimer:CreateTimerFrame()
 
     -- 드래그 가능
     frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if not CombatTimer.db.locked then
-            self:StartMoving()
-        end
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local point, _, relativePoint, x, y = self:GetPoint()
-        CombatTimer.db.position.point = point
-        CombatTimer.db.position.relativePoint = relativePoint or point
-        CombatTimer.db.position.x = x
-        CombatTimer.db.position.y = y
-    end)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
     end
+    frame:EnableMouse(false)
 
     -- 배경 텍스쳐
     frame.bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
@@ -132,8 +118,8 @@ function CombatTimer:UpdateFrameStyle()
     local r = self.db.textColor[1] or 1
     local g = self.db.textColor[2] or 1
     local b = self.db.textColor[3] or 1
-    timerFrame.mainText:SetTextColor(r, g, b, 1)
-    timerFrame.msText:SetTextColor(r, g, b, 0.8)
+    timerFrame.mainText:SetTextColor(r, g, b, self.db.textColor[4] or 1)
+    timerFrame.msText:SetTextColor(r, g, b, (self.db.textColor[4] or 1) * 0.8)
 
     -- 밀리초 표시 여부
     if self.db.showMilliseconds then

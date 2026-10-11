@@ -111,6 +111,9 @@ local function SetValue(setting, value)
     ns:SetDBValue(setting.key, value)
     if setting.onChange then setting.onChange(value) end
     QueueDetailPreviewRefresh()
+    if setting.refreshPanel then
+        C_Timer.After(0, function() if activePanel then ConfigUI:RefreshCurrentPanel() end end)
+    end
     if setting.reloadRequired then
         StaticPopup_Show("DDINGTOOLKIT_RELOAD_CONFIRM")
     end
@@ -194,7 +197,6 @@ local function CreateSoundWidget(parent, setting)
             {
                 inputWidth = 230,
                 maxLetters = 256,
-                tooltip = L and L["SOUND_CUSTOM_PATH_HELP"] or "Enter the path relative to the WoW _retail_ folder.\nExample: Interface\\abc.ogg",
                 onChange = function(value)
                     ns:SetDBValue(customKey, value)
                     if setting.customPathOnChange and setting.onChange then
@@ -468,7 +470,7 @@ local function CreateDetailPreview(parent, panelKey)
     if not ModuleSupportsPreview(panelKey) then return nil end
 
     local preview = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    preview:SetHeight(76)
+    preview:SetHeight(52)
     preview:SetBackdrop({
         bgFile = SOLID,
         edgeFile = SOLID,
@@ -496,16 +498,8 @@ local function CreateDetailPreview(parent, panelKey)
     local title = preview:CreateFontString(nil, "OVERLAY")
     title:SetFont(F.path, F.normal, "")
     title:SetTextColor(u(C.text.highlight))
-    title:SetPoint("TOPLEFT", preview, "TOPLEFT", 16, -14)
+    title:SetPoint("LEFT", preview, "LEFT", 16, 0)
     title:SetText(LT("DETAIL_PREVIEW_TITLE", "Live preview"))
-
-    local desc = preview:CreateFontString(nil, "OVERLAY")
-    desc:SetFont(F.path, F.small, "")
-    desc:SetTextColor(u(C.text.dim))
-    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -7)
-    desc:SetPoint("RIGHT", preview, "RIGHT", -170, 0)
-    desc:SetJustifyH("LEFT")
-    desc:SetText(LT("DETAIL_PREVIEW_DESC", "Show the real element while adjusting its settings."))
 
     local previewButton
     previewButton = Widgets.CreateButton(preview, ADDON_KEY,
@@ -568,9 +562,10 @@ local function BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     end
 
     for index = #sections, 1, -1 do
-        if #sections[index].settings == 0 then
-            table.remove(sections, index)
-        end
+        local settings = sections[index].settings
+        while settings[1] and settings[1].type == "separator" do table.remove(settings, 1) end
+        while settings[#settings] and settings[#settings].type == "separator" do table.remove(settings) end
+        if #settings == 0 then table.remove(sections, index) end
     end
     return sections
 end
@@ -737,11 +732,6 @@ local function RenderSettingsPanel(container, panelDef)
                 tooltip = s.desc,
                 onChange = function(value)
                     SetValue(s, value)
-                    if s.refreshPanel then
-                        C_Timer.After(0, function()
-                            if activePanel then ConfigUI:RefreshCurrentPanel() end
-                        end)
-                    end
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -757,9 +747,7 @@ local function RenderSettingsPanel(container, panelDef)
                 searchable = s.searchable,
                 tooltip = s.desc,
                 onChange = function(value)
-                    ns:SetDBValue(s.key, value)
-                    if s.onChange then s.onChange(value) end
-                    QueueDetailPreviewRefresh()
+                    SetValue(s, value)
                 end,
             })
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
@@ -1250,7 +1238,7 @@ local fullMenuData = nil  -- 트리 필터링용 원본 저장
 
 -- 검색 가능한 위젯 타입
 local SEARCHABLE_TYPES = {
-            toggle = true, slider = true, dropdown = true, input = true,
+    toggle = true, slider = true, dropdown = true, input = true,
     sound = true, font = true, statusbar = true,
     color = true, button = true, separator = true,
 }
@@ -1275,7 +1263,8 @@ local function BuildSearchIndex()
     buildMenuLookup(tree.menu)
 
     for key, panelDef in pairs(tree.panels) do
-        local panelTitle = menuLookup[key] or panelDef.title or key
+        local targetKey = settingsPanel and settingsPanel.workspace and key == "general" and "profile" or key
+        local panelTitle = menuLookup[targetKey] or tree.panels[targetKey].title or targetKey
         local settings = panelDef.settings
         if settings then
             for _, s in ipairs(settings) do
@@ -1283,7 +1272,7 @@ local function BuildSearchIndex()
                     index[#index + 1] = {
                         name = s.label,
                         nameLower = s.label:lower(),
-                        panelKey = key,
+                        panelKey = targetKey,
                         panelTitle = panelTitle,
                         type = s.type,
                     }

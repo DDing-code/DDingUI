@@ -4,9 +4,19 @@
 
 ### 한국어
 
+- **설정 정리:** 안내문·설명 툴팁·빈 탭·중복 사용 스위치를 제거했습니다. 관련 소리 설정과 작은 탭을 묶고, 표현 방식에 따라 효과가 있는 옵션만 표시합니다. 모듈 머리줄의 활성화 스위치 하나로 동작합니다.
+- **편집 모드:** 위치 슬라이더·잠금·위치 초기화 버튼을 공용 편집 모드로 통일했습니다. 파티 신청 알림의 위치 저장을 고치고 우편 알림 두 디자인도 편집 대상에 추가했습니다. 기존 배치는 유지합니다.
+- **설정 적용:** 파티 트래커의 기본 활성화와 분리 마나바·블러드 아이콘의 즉시 변경, 아이템 레벨 기본값 복원, 사망 알림 글꼴, 커서 정사각형 텍스처 보존, 메모장 버튼 갱신을 수정했습니다. 사망·내구도 알림은 소리를 따로 고르지 않아도 기본 경보음을 재생합니다. 기존 표시 지연·추적 조건·판정 주기·글꼴·표시 레이어 설정을 화면에 추가했습니다. 타겟 스펠 소리는 대상 판정이 공개 값일 때만 재생하며 비밀값은 사용하지 않습니다.
+- **쐐기돌 도우미:** 모듈과 하위 어픽스 진단, 전용 메뉴·명령어·로드 참조를 삭제했습니다.
+
 - **공허핵 도우미:** 영웅·신화 공격대와 쐐기 밖의 공허핵 보상은 BIS·진입 확인·개별 구렁/사냥 설정과 관계없이 자동 포기합니다. 진입 확인창은 영웅·신화 공격대와 쐐기에서만 표시합니다. 해당 콘텐츠의 기존 BIS 판정과 쐐기 10단 조건, 일반 전리품은 유지합니다.
 
 ### English
+
+- **Settings:** Removed explanatory copy, help tooltips, empty tabs and duplicate enable switches. Related sound controls and small sections are grouped together, and controls are hidden when the selected design cannot use them. The module-header switch is the sole enable control.
+- **Edit mode:** Moved position, lock and position-reset controls into the shared editor. Fixed saving Party Application Alert positions and added both Mail Alert designs while preserving existing placement.
+- **Setting updates:** Fixed Party Tracker activation and live updates for separate mana bars and the Bloodlust icon, Item Level reset, Death Alert font selection, square cursor-texture persistence and Notepad button refresh. Death and durability alerts now use a default warning sound when no sound is selected. Exposed existing delay, tracking conditions, polling, font and frame-layer settings. Target Spell sounds use only public target checks; secret values are never branched on.
+- **Keystone Helper:** Removed the module, its affix diagnostics, dedicated menu, commands and load references.
 
 - **Voidcore Helper:** Automatically declines Voidcore rewards outside Heroic/Mythic raids and Mythic Keystones regardless of BIS, entry consent or individual Delve/Prey settings. Entry confirmation appears only in Heroic/Mythic raids and Keystones. Existing BIS checks, the Keystone +10 threshold and ordinary loot are unchanged.
 

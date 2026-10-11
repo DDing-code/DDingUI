@@ -351,18 +351,19 @@ function MailAlert:AnimateFade()
     frame.fadeIn:Play()
 end
 
+function MailAlert:GetAlertPosition()
+    if type(self.db.position) == "table" then return self.db.position end
+    local point = self.db.alertPosition or "TOP"
+    local y = point == "TOP" and -100 or (point == "BOTTOM" and 200 or 150)
+    return { point = point, relativePoint = point, x = 0, y = y }
+end
+
 function MailAlert:ApplyPosition()
     local frame = self.alertFrame
     if not frame then return end
+    local pos = self:GetAlertPosition()
     frame:ClearAllPoints()
-    local position = self.db.alertPosition
-    if position == "TOP" then
-        frame:SetPoint("TOP", UIParent, "TOP", 0, -100)
-    elseif position == "BOTTOM" then
-        frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 200)
-    else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
-    end
+    frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
     frame:SetScale(self.db.alertScale or 1)
 end
 

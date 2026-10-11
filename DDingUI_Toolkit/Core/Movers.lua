@@ -267,10 +267,23 @@ local REG = {
     {
         name = "LFGAlert",
         frameName = "DDingToolKit_LFGAlertFrame",
-        posType = "none",
+        dbPath = "LFGAlert.position",
+        posType = "standard",
         module = "LFGAlert",
         previewState = "noncombat",
         defaultW = 500, defaultH = 112,
+    },
+    {
+        name = "MailAlert",
+        getFrame = function()
+            local mod = ns.MailAlert
+            if mod then mod:CreateAlertFrame(); return mod.alertFrame end
+        end,
+        dbPath = "MailAlert.position",
+        posType = "standard",
+        module = "MailAlert",
+        previewState = "noncombat",
+        defaultW = 560, defaultH = 166,
     },
     {
         name = "PartyFullAlert",
@@ -320,6 +333,7 @@ local DEFAULT_POSITIONS = {
     DurabilityCheck = { x = 0, y = 0 },
     GoldSplit = { x = 0, y = 0 },
     LFGAlert = { x = 0, y = -100 },
+    MailAlert = { x = 0, y = -100 },
     PartyFullAlert = { x = 0, y = 0 },
     CalendarInviteAlert = { x = 0, y = -260 },
 }
@@ -345,6 +359,7 @@ local function GetDisplayName(reg)
         DurabilityCheck = Locale("TAB_DURABILITY", "Durability"),
         GoldSplit = Locale("TAB_GOLDSPLIT", "Calculator"),
         LFGAlert = Locale("TAB_LFGALERT", "Party Alert"),
+        MailAlert = Locale("TAB_MAILALERT", "Mail Alert"),
         PartyFullAlert = Locale("TAB_PARTYFULLALERT", "Party Full Alert"),
         CalendarInviteAlert = Locale("TAB_CALENDARINVITEALERT", "Calendar Invite Alert"),
     }
@@ -606,6 +621,7 @@ local function GetDefaultPos(reg)
         end
     end
 
+    if reg.name == "LFGAlert" or reg.name == "MailAlert" then return "TOP", 0, -100, "TOP" end
     local fallback = DEFAULT_POSITIONS[reg.name] or { x = 0, y = 0 }
     return "CENTER", fallback.x, fallback.y, "CENTER"
 end
@@ -650,6 +666,11 @@ local function GetSavedPos(reg)
     local tbl, key = GetPosTable(reg)
     if tbl and key and tbl[key] and tbl[key].point then
         return tbl[key].point, tbl[key].x or 0, tbl[key].y or 0
+    end
+    local mod = DDingToolKit.modules and DDingToolKit.modules[reg.module] or ns[reg.module]
+    if mod and mod.GetAlertPosition then
+        local pos = mod:GetAlertPosition()
+        return pos.point, pos.x or 0, pos.y or 0
     end
     return "CENTER", 0, 0
 end

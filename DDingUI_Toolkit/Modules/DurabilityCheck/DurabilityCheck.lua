@@ -274,27 +274,10 @@ function DurabilityCheck:CreateAlertFrame()
 
     -- 드래그 가능
     alertFrame:SetMovable(true)
-    alertFrame:EnableMouse(true)
-    alertFrame:RegisterForDrag("LeftButton")
-    alertFrame:SetScript("OnDragStart", function(self)
-        if not DurabilityCheck.db.locked then
-            self:StartMoving()
-        end
-    end)
-    alertFrame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        -- 위치 저장
-        local point, _, relPoint, x, y = self:GetPoint()
-        DurabilityCheck.db.position = {
-            point = point,
-            relativePoint = relPoint,
-            x = x,
-            y = y,
-        }
-    end)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(alertFrame)
     end
+    alertFrame:EnableMouse(false)
 
     self.alertFrame = alertFrame
     self:ApplySettings()
@@ -550,6 +533,14 @@ function DurabilityCheck:ShowAlert(percent, isTest)
             else
                 ns:PlaySound(soundFile, channel, customPath)
             end
+        elseif soundFile ~= "None" then
+            local soundKit = (SOUNDKIT and SOUNDKIT.RAID_WARNING) or 8959
+            if ns.RequestSound then
+                ns:RequestSound({source="DurabilityCheck", key="threshold", soundKit=soundKit,
+                    channel=channel, priority=20, canQueue=true})
+            else
+                PlaySound(soundKit, channel)
+            end
         end
     end
 
@@ -583,7 +574,7 @@ end
 -- 잠금 상태 업데이트
 function DurabilityCheck:UpdateLock()
     if alertFrame then
-        alertFrame:EnableMouse(not self.db.locked)
+        alertFrame:EnableMouse(false)
     end
 end
 

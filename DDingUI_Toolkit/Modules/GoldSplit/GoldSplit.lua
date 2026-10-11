@@ -119,7 +119,7 @@ function GoldSplit:CreateMainFrame()
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
     titleBar:SetScript("OnDragStart", function()
-        if not self.db.locked then
+        if ns.ToolkitMovers and ns.ToolkitMovers:IsActive() then
             mainFrame:StartMoving()
         end
     end)

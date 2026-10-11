@@ -405,7 +405,7 @@ def test_calendar_invite_module_wiring_and_lua_syntax():
     assert 'mod:OnEnable()' in panel and 'mod:OnDisable()' in panel
     assert 'CalendarInviteAlert.soundCustomPath' in panel
     assert 'CalendarInviteAlert.notifyToday' in panel
-    assert 'desc = L["CALENDARALERT_NOTIFY_TODAY_DESC"]' in panel
+    assert 'desc = L["CALENDARALERT_NOTIFY_TODAY_DESC"]' not in panel
     assert 'label = L["CALENDARALERT_TEST_TODAY"]' in panel
     assert 'calendarinvitealert = "CalendarInviteAlert"' in config
     assert 'Modules\\CalendarInviteAlert\\CalendarInviteAlert.lua' in (ROOT / "DDingUI_Toolkit.toc").read_text(encoding="utf-8-sig")

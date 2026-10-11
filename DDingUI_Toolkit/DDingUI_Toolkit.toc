@@ -105,9 +105,6 @@ Modules\ItemLevel\ItemLevel.lua
 Modules\Notepad\Notepad.lua
 
 
-# Modules - MythicPlusHelper
-Modules\MythicPlusHelper\MythicPlusHelper.lua
-Modules\MythicPlusHelper\AffixProbe.lua
 
 # Modules - GoldSplit
 Modules\GoldSplit\GoldSplit.lua

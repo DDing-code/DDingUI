@@ -936,18 +936,10 @@ function FocusInterrupt:TestMode()
     if isTestMode then
         for label, bar in pairs({ target = ns.targetcastbar, focus = ns.focuscastbar }) do
             if bar then
-                bar:EnableMouse(true)
-                bar:RegisterForDrag("LeftButton")
-                bar:SetScript("OnDragStart", function(self) self:StartMoving() end)
-                bar:SetScript("OnDragStop", function(self)
-                    self:StopMovingOrSizing()
-                    local p, _, rp, x, y = self:GetPoint()
-                    local key = (label == "target") and "targetPosition" or "focusPosition"
-                    FocusInterrupt.db[key] = { point = p, relativePoint = rp, x = x, y = y }
-                end)
                 if ns.EnableRightClickMouselook then
                     ns:EnableRightClickMouselook(bar)
                 end
+                bar:EnableMouse(false)
                 bar:SetScript("OnUpdate", nil)
                 PopulatePreviewBar(bar, label)
             end

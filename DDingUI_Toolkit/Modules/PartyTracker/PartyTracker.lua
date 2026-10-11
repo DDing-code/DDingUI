@@ -138,12 +138,6 @@ function PartyTracker:OnEnable()
         end
     end
 
-    -- enabled 체크
-    if not self.db.enabled then
-        isEnabled = false
-        return
-    end
-
     isEnabled = true
     self:CreateMainFrame()
     self:UpdateVisibility()
@@ -156,6 +150,7 @@ function PartyTracker:OnDisable()
     if mainFrame then
         mainFrame:Hide()
     end
+    if manaFrame then manaFrame:Hide() end
     if updateTicker then
         updateTicker:Cancel()
         updateTicker = nil
@@ -197,24 +192,10 @@ function PartyTracker:CreateMainFrame()
 
     -- 드래그 가능
     frame:SetMovable(true)
-    frame:EnableMouse(not self.db.locked)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if not PartyTracker.db.locked then
-            self:StartMoving()
-        end
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local point, _, relativePoint, x, y = self:GetPoint()
-        PartyTracker.db.position.point = point
-        PartyTracker.db.position.relativePoint = relativePoint or point
-        PartyTracker.db.position.x = x
-        PartyTracker.db.position.y = y
-    end)
+    frame:EnableMouse(false)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
-        frame:EnableMouse(not self.db.locked)
+        frame:EnableMouse(false)
     end
 
     mainFrame = frame
@@ -342,8 +323,10 @@ function PartyTracker:UpdateFonts()
     updateFrame(battleResFrame)
     updateFrame(lustFrame)
 
-    for _, frame in ipairs(healerFrames) do
-        updateFrame(frame)
+    for _, frames in ipairs({healerFrames, separateHealerFrames}) do
+        for _, frame in ipairs(frames) do
+            updateFrame(frame)
+        end
     end
 end
 
@@ -352,12 +335,14 @@ function PartyTracker:UpdateManaBarSize()
     local width = self.db.manaBarWidth or 60
     local height = self.db.manaBarHeight or 10
 
-    for _, frame in ipairs(healerFrames) do
-        if frame.manaBar then
-            frame.manaBar:SetSize(width, height)
-        end
-        if frame.manaBarBorder then
-            frame.manaBarBorder:SetSize(width + 2, height + 2)
+    for _, frames in ipairs({healerFrames, separateHealerFrames}) do
+        for _, frame in ipairs(frames) do
+            if frame.manaBar then
+                frame.manaBar:SetSize(width, height)
+            end
+            if frame.manaBarBorder then
+                frame.manaBarBorder:SetSize(width + 2, height + 2)
+            end
         end
     end
 end
@@ -367,10 +352,12 @@ function PartyTracker:UpdateManaBarPosition()
     local offsetX = self.db.manaBarOffsetX or 4
     local offsetY = self.db.manaBarOffsetY or 6
 
-    for _, frame in ipairs(healerFrames) do
-        if frame.manaBarBorder and frame.iconFrame then
-            frame.manaBarBorder:ClearAllPoints()
-            frame.manaBarBorder:SetPoint("LEFT", frame.iconFrame, "RIGHT", offsetX - 1, offsetY)
+    for _, frames in ipairs({healerFrames, separateHealerFrames}) do
+        for _, frame in ipairs(frames) do
+            if frame.manaBarBorder and frame.iconFrame then
+                frame.manaBarBorder:ClearAllPoints()
+                frame.manaBarBorder:SetPoint("LEFT", frame.iconFrame, "RIGHT", offsetX - 1, offsetY)
+            end
         end
     end
 end
@@ -379,9 +366,11 @@ end
 function PartyTracker:UpdateManaBarTexture()
     local texture = self.db.manaBarTexture or "Interface\\TargetingFrame\\UI-StatusBar"
 
-    for _, frame in ipairs(healerFrames) do
-        if frame.manaBar then
-            frame.manaBar:SetStatusBarTexture(texture)
+    for _, frames in ipairs({healerFrames, separateHealerFrames}) do
+        for _, frame in ipairs(frames) do
+            if frame.manaBar then
+                frame.manaBar:SetStatusBarTexture(texture)
+            end
         end
     end
 end
@@ -438,25 +427,10 @@ function PartyTracker:CreateSeparateManaFrame()
 
     -- 드래그 가능
     frame:SetMovable(true)
-    frame:EnableMouse(not self.db.manaLocked)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self)
-        if not PartyTracker.db.manaLocked then
-            self:StartMoving()
-        end
-    end)
-    frame:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local point, _, relativePoint, x, y = self:GetPoint()
-        PartyTracker.db.manaPosition = PartyTracker.db.manaPosition or {}
-        PartyTracker.db.manaPosition.point = point
-        PartyTracker.db.manaPosition.relativePoint = relativePoint or point
-        PartyTracker.db.manaPosition.x = x
-        PartyTracker.db.manaPosition.y = y
-    end)
+    frame:EnableMouse(false)
     if ns.EnableRightClickMouselook then
         ns:EnableRightClickMouselook(frame)
-        frame:EnableMouse(not self.db.manaLocked)
+        frame:EnableMouse(false)
     end
 
     -- 크기 적용
@@ -904,24 +878,10 @@ end
 -- 잠금 상태 업데이트 (마우스 상호작용)
 function PartyTracker:UpdateLockState()
     if mainFrame then
-        local locked = self.db and self.db.locked
-        mainFrame:EnableMouse(not locked)
+        mainFrame:EnableMouse(false)
     end
     if manaFrame then
-        local manaLocked = self.db and self.db.manaLocked
-        manaFrame:EnableMouse(not manaLocked)
-    end
-end
-
--- 잠금 상태 업데이트 (마우스 상호작용)
-function PartyTracker:UpdateLockState()
-    if mainFrame then
-        local locked = self.db and self.db.locked
-        mainFrame:EnableMouse(not locked)
-    end
-    if manaFrame then
-        local manaLocked = self.db and self.db.manaLocked
-        manaFrame:EnableMouse(not manaLocked)
+        manaFrame:EnableMouse(false)
     end
 end
 
@@ -945,6 +905,7 @@ function PartyTracker:UpdateIconSize()
     end
 
     updateFrame(battleResFrame)
+    updateFrame(lustFrame)
 
     for _, frame in ipairs(healerFrames) do
         updateFrame(frame)

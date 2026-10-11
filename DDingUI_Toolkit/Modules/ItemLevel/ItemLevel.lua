@@ -760,6 +760,12 @@ function ItemLevel:OnDisable()
     HideInspectDisplay()
 end
 
+function ItemLevel:ResetSettings()
+    wipe(self.db)
+    for key, value in pairs(ns.defaults.profile.ItemLevel) do self.db[key] = value end
+    self:Refresh()
+end
+
 function ItemLevel:Refresh()
     if not self.enabled then return end
     if CharacterFrame and CharacterFrame:IsShown() then
