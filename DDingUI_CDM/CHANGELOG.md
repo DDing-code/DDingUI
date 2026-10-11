@@ -2,6 +2,21 @@
 
 ---
 
+## v2.2.2
+
+_Release date: 2026-10-11_
+_Scope: Changes after the v2.2.1 release commit 1c3bc2b through this release._
+
+### English Patch Notes
+
+- **Keybind Text:** Restored keybind controls under CDM Bars → Essential/Utility → Text. Toggle the text and adjust its font, size, color, anchor and offsets while retaining existing settings.
+- **Sound Registration:** Fixed the LibSharedMedia error caused by registering the built-in no-sound choice with an empty file path. The no-sound choice and existing alert-sound selections remain available.
+
+### Korean Patch Notes
+
+- **단축키 표시:** CDM 바 → 핵심 능력·보조 능력 → 텍스트에 단축키 설정을 복구했습니다. 기존 설정을 유지하며 표시 여부, 글꼴·크기·색상·기준점·위치를 조절할 수 있습니다.
+- **소리 등록 오류:** 기본 제공되는 ‘소리 없음’을 빈 파일 경로로 다시 등록해 발생하던 LibSharedMedia 오류를 수정했습니다. ‘소리 없음’과 기존 알림음 선택은 유지됩니다.
+
 ## v2.2.1
 
 _Release date: 2026-10-06_
