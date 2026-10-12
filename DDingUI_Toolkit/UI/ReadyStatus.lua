@@ -21,6 +21,7 @@ RS.ITEM_ICONS = {
     food = ICON_PATH .. "food",
     flask = ICON_PATH .. "flask",
     rune = ICON_PATH .. "rune",
+    vantus = ICON_PATH .. "vantus",
     raidBuff = ICON_PATH .. "raidbuff",
     weapon = ICON_PATH .. "weapon",
     durability = ICON_PATH .. "durability",
@@ -127,7 +128,7 @@ function RS.Text(parent, size, color, text)
 end
 
 --- Icon cell: game icon + 1px status border + optional round count badge (top right, 16px).
---- cell:SetIcon(texture), cell:SetState("ok"|"warn"|"bad"|nil), cell:SetBadge(count, state),
+--- cell:SetIcon(texture), cell:SetState("ok"|"warn"|"bad"|"opt"|nil), cell:SetBadge(count, state),
 --- cell:SetRound(true) for a circular spec icon (no square border).
 function RS.CreateIcon(parent, size)
     local cell = CreateFrame("Frame", nil, parent)
@@ -233,8 +234,8 @@ function RS.CreateIcon(parent, size)
         self.badgeState = count > 0 and state or nil
         if count <= 0 then self.badge:Hide(); return end
         RS.Tint(self.badge.fill, RS.Color(state))
-        -- white on red, dark on yellow for contrast
-        self.badge.text:SetTextColor(Unpack(state == "warn" and Token("bg", "main") or Token("text", "highlight"), 1))
+        -- [STYLE] Dark text on warning and optional badges keeps their counts readable.
+        self.badge.text:SetTextColor(Unpack((state == "warn" or state == "opt") and Token("bg", "main") or Token("text", "highlight"), 1))
         self.badge.text:SetText(count > 99 and "99" or tostring(count))
         self.badge:SetWidth(math.max(RS.BADGE, (self.badge.text:GetStringWidth() or 0) + 8))
         self.badge:Show()

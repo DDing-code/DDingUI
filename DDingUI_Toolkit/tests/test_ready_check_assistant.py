@@ -60,6 +60,7 @@ def panel_runtime(locale="koKR"):
         function methods:SetStatusBarColor(...) self.barColor={...} end
         function methods:SetValue(value) self.value=value end
         function methods:SetScale(scale) self.scale=scale end
+        function methods:GetEffectiveScale() return (self.scale or 1) * (self.parent and self.parent:GetEffectiveScale() or 1) end
         function methods:SetJustifyH(value) self.justify=value end
         function methods:SetHighlightTexture(texture) self.highlight=self:CreateTexture(); self.highlight:SetTexture(texture) end
         function methods:GetHighlightTexture() return self.highlight end
@@ -82,7 +83,7 @@ def panel_runtime(locale="koKR"):
         UIParent = CreateFrame("Frame")
         UIParent:SetSize(1920,1080)
         ReadyCheckFrame = CreateFrame("Frame", "ReadyCheckFrame", UIParent)
-        ReadyCheckFrame:SetSize(300,100)
+        ReadyCheckFrame:SetSize(323,100)
         clock = 10
         function GetTime() return clock end
         function InCombatLockdown() return inCombat or false end
@@ -112,7 +113,7 @@ def panel_runtime(locale="koKR"):
         function module:GetDurabilityInfo() return durability end
         function module:GetConsumables()
             return {flask={value=true,remaining=2700}, food={value=true,remaining=1680},
-                rune={value=true,remaining=3120}, weapon={value=true,remaining=3240}}
+                rune={value=true,remaining=3120}, vantus={value=true}, weapon={value=true,remaining=3240}}
         end
         module:OnEnable()
         display = module.frame
@@ -144,12 +145,12 @@ def test_ready_check_compact_checklist_layout():
         lua.execute('''
             local L = ns.L
             local styles = ns.ReadyStatus
-            -- 300 wide, fixed height, six 26px rows, no buttons
-            assert(display.width == 300 and display.height == 220, display.width .. "x" .. display.height)
-            assert(#display.rows == 6)
+            -- Popup width, seven rows with a 14px optional group separator.
+            assert(display.width == 323 and display.height == 260, display.width .. "x" .. display.height)
+            assert(#display.rows == 7)
             for i, row in ipairs(display.rows) do
-                assert(row.height == 26 and row.width == 276)
-                assert(row.points.TOPLEFT.y == -(54 + (i - 1) * 26))
+                assert(row.height == 26 and row.width == 299)
+                assert(row.points.TOPLEFT.y == -(54 + (i - 1) * 26 + (i > 5 and 14 or 0)))
                 assert(row.cell.width == styles.PERSONAL_ICON and row.cell.height == 24)
             end
             assert(display.openTalentsButton == nil and display.reportButton == nil)
@@ -159,13 +160,14 @@ def test_ready_check_compact_checklist_layout():
                     assert(r.text ~= L.RCA_OPEN_TALENTS and r.text ~= L.RCA_REPORT_BUTTON, "button text left in panel")
                 end
             end
-            -- rows: talents, flask, food, rune, weapon, durability
+            -- talents, flask, food, weapon, durability | augment, Vantus
             assert(display.rows[1].label.text == string.format(L.RCA_TALENT_ROW, "Raid"))
             assert(display.rows[2].label.text == L.RAIDPREP_COLUMN_FLASK)
             assert(display.rows[3].label.text == L.RAIDPREP_COLUMN_FOOD)
-            assert(display.rows[4].label.text == L.RCA_ROW_RUNE)
-            assert(display.rows[5].label.text == L.RAIDPREP_COLUMN_WEAPON)
-            assert(display.rows[6].label.text == L.RAIDPREP_COLUMN_DURABILITY)
+            assert(display.rows[4].label.text == L.RAIDPREP_COLUMN_WEAPON)
+            assert(display.rows[5].label.text == L.RAIDPREP_COLUMN_DURABILITY)
+            assert(display.rows[6].label.text == L.RCA_ROW_RUNE)
+            assert(display.rows[7].label.text == L.RCA_ROW_VANTUS)
             -- loadout "Dungeon" vs expected "Raid", durability 18% below 25%
             assert(module.snapshot.issueCount == 2)
             assert(display.summaryPill.text.text == string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 2))
@@ -174,21 +176,21 @@ def test_ready_check_compact_checklist_layout():
             for _, context in ipairs({"RAID", "MPLUS", "PARTY"}) do
                 display.summaryPill:SetPill(string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 6), "warn")
                 display.contextPill:SetPill(L["RCA_CONTEXT_" .. context])
-                assert(display.summaryPill.width + 8 + display.contextPill.width <= 276, context)
+                assert(display.summaryPill.width + 8 + display.contextPill.width <= 299, context)
             end
             for _, row in ipairs(display.rows) do
-                assert(row.status:GetStringWidth() + 24 + 10 + 8 <= 276)
+                assert(row.status:GetStringWidth() + 24 + 10 + 8 <= 299)
             end
             assert(display.rows[1].status.text == L.RCA_CHECK_MISMATCH)
-            assert(display.rows[6].status.text == L.RCA_LOWEST .. " 18%")
-            assert(states(display) == "bad,ok,ok,ok,ok,bad", states(display))
-            assert(display.rows[1].card.shown and display.rows[6].card.shown and not display.rows[2].card.shown)
+            assert(display.rows[5].status.text == L.RCA_LOWEST .. " 18%")
+            assert(states(display) == "bad,ok,ok,ok,bad,ok,ok", states(display))
+            assert(display.rows[1].card.shown and display.rows[5].card.shown and not display.rows[2].card.shown)
             local bad = styles.Color("bad")
             assert(display.rows[1].status.textColor[1] == bad[1] and display.rows[1].cell.icon.mask)
             assert(display.rows[1].cell.icon.texture == 136048, "spec icon")
             -- Toolkit's own icons (full-bleed, no 8% crop) for flask and durability
             assert(display.rows[2].cell.icon.texture:find("ready_flask", 1, true))
-            assert(display.rows[6].cell.icon.texture:find("ready_durability", 1, true))
+            assert(display.rows[5].cell.icon.texture:find("ready_durability", 1, true))
             assert(display.rows[2].cell.icon.texCoord[1] == 0 and display.rows[2].cell.icon.texCoord[2] == 1)
 
             currentLoadout = "Raid"
@@ -197,7 +199,7 @@ def test_ready_check_compact_checklist_layout():
             assert(module.snapshot.issueCount == 0 and module.snapshot.status == "READY")
             assert(display.summaryPill.text.text == L.RCA_NO_ISSUES and display.summaryPill.state == "ok")
             assert(display.rows[1].status.text == L.RCA_STATUS_MATCH)
-            assert(states(display) == "ok,ok,ok,ok,ok,ok")
+            assert(states(display) == "ok,ok,ok,ok,ok,ok,ok")
             for _, row in ipairs(display.rows) do assert(not row.card.shown) end
             loadoutKnown = false
             module:Refresh()
@@ -211,7 +213,7 @@ def test_ready_check_compact_checklist_layout():
             -- old width option no longer changes the panel
             module.db.width = 900
             module:ApplySettings()
-            assert(display.width == 300 and display.height == 220)
+            assert(display.width == 323 and display.height == 260)
             DDingUI_StyleLib.Font.path = "new-font.ttf"
             module:OnMediaChanged()
             for label, size in pairs(display.fontSizes) do
@@ -273,16 +275,16 @@ def test_personal_consumable_status_and_reports():
             rune={},weapon={value=true,remaining=32}}
         function module:GetConsumables() return buffs end
         module:Refresh()
-        assert(module.snapshot.issueCount==2)
+        assert(module.snapshot.issueCount==1)
         assert(display.rows[2].status.text==ns.L.RCA_MISSING and display.rows[2].state=="bad")
         assert(display.rows[3].status.text==string.format(ns.L.RCA_MINUTES_LEFT,28) and display.rows[3].state=="ok")
         assert(display.rows[3].cell.icon.texture==999, "live aura icon wins")
-        assert(display.rows[4].status.text==ns.L.RCA_CHECK_UNKNOWN and display.rows[4].state==nil)
-        assert(display.rows[5].status.text==string.format(ns.L.RCA_SECONDS_LEFT,32) and display.rows[5].state=="warn")
-        assert(display.rows[2].card.shown and display.rows[5].card.shown and not display.rows[4].card.shown)
+        assert(display.rows[6].status.text==ns.L.RCA_CHECK_UNKNOWN and display.rows[6].state==nil)
+        assert(display.rows[4].status.text==string.format(ns.L.RCA_SECONDS_LEFT,32) and display.rows[4].state=="warn")
+        assert(display.rows[2].card.shown and display.rows[4].card.shown and not display.rows[6].card.shown)
         local report=module:BuildReport(module.snapshot)
         assert(report:find(ns.L.RAIDPREP_COLUMN_FLASK,1,true))
-        assert(report:find(ns.L.RCA_CHECK_UNKNOWN,1,true))
+        assert(not report:find(ns.L.RAIDPREP_COLUMN_RUNE,1,true))
         buffs.flask={value=true};buffs.rune={value=true}
         module:Refresh()
         assert(module.snapshot.issueCount==0 and module.snapshot.status=="READY")
@@ -355,3 +357,65 @@ def test_personal_consumables_use_shared_scan_without_enabling_raid_module():
         end
         assert(personal:GetConsumables().flask.value=="LOW")
     ''')
+
+
+def test_optional_rows_do_not_count_and_follow_popup_width():
+    for locale in ("koKR", "enUS"):
+        lua = panel_runtime(locale)
+        lua.execute('''
+            currentLoadout="Raid"
+            durability={lowest=96,average=98,threshold=25,lowSlots={}}
+            local buffs={flask={value=true},food={value=true},weapon={value=true},rune={},vantus={}}
+            function module:GetConsumables() return buffs end
+            for _, value in ipairs({false, "LOW", true}) do
+                buffs.rune={value=value,remaining=value=="LOW" and 32 or nil}
+                buffs.vantus={value=value}
+                module:Refresh()
+                assert(module.snapshot.status=="READY" and module.snapshot.issueCount==0)
+                assert(display.summaryPill.state=="ok")
+                for i=6,7 do
+                    local row=display.rows[i]
+                    assert(row.state==(value==true and "ok" or nil) and not row.card.shown)
+                    if value~=true then
+                        assert(row.status.textColor[1]==ns.ReadyStatus.Token("text","dim")[1])
+                        assert(not row.cell.wellTint.shown)
+                    end
+                end
+                local report=module:BuildReport(module.snapshot)
+                assert(not report:find(ns.L.RAIDPREP_COLUMN_RUNE,1,true))
+                assert(not report:find(ns.L.RCA_ROW_VANTUS,1,true))
+            end
+            module.db.showOptional=false; module:ApplySettings()
+            assert(display.height==194 and not display.optionalHeader.shown)
+            assert(not display.rows[6].shown and not display.rows[7].shown)
+            ReadyCheckFrame:SetWidth(400)
+            ReadyCheckFrame:SetScale(.9); module.db.scale=1.25
+            module.db.showOptional=true; module:ApplySettings()
+            assert(math.abs(display.width*display:GetEffectiveScale()-ReadyCheckFrame:GetWidth()*ReadyCheckFrame:GetEffectiveScale())<.001)
+            assert(display.rows[7].width==display.width-24 and display.rows[7].shown)
+            module.db.scale=1; ReadyCheckFrame:SetScale(1)
+            buffs.flask={value=false}; buffs.food={value=false}; buffs.weapon={value=false}
+            for _,scale in ipairs({.6,1,1.4,1.8}) do
+                module.db.scale=scale; module:ApplySettings()
+                assert(math.abs(display.width*display:GetEffectiveScale()-400)<.001)
+                if display.contextPill.shown then
+                    assert(display.summaryPill.width+display.contextPill.width+8<=display.width-24)
+                end
+            end
+            module.db.scale=1
+            for _, width in ipairs({50,900}) do
+                ReadyCheckFrame:SetWidth(width); module:ApplySettings(); assert(display.width==323)
+            end
+            local secret={}; function issecretvalue(value) return rawequal(value,secret) end
+            local getWidth=ReadyCheckFrame.GetWidth
+            ReadyCheckFrame.GetWidth=function() return secret end
+            module:ApplySettings(); assert(display.width==323)
+            ReadyCheckFrame.GetWidth=getWidth; ReadyCheckFrame:SetWidth(323)
+            inCombat=true; module.db.showOptional=false; module:ApplySettings()
+            assert(module.settingsPending and display.height==260)
+            inCombat=false
+            for _, region in ipairs(regions) do
+                if region.scripts.OnEvent then region.scripts.OnEvent(region,"PLAYER_REGEN_ENABLED") end
+            end
+            assert(not module.settingsPending and display.height==194)
+        ''')

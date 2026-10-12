@@ -212,6 +212,7 @@ end
 local function HideSlotData(data)
     if not data then return end
     if data.ilvlFS then data.ilvlFS:Hide() end
+    if data.trackFS then data.trackFS:Hide() end
     if data.enchFS then data.enchFS:Hide() end
     for _, texture in ipairs(data.gems or {}) do
         texture:Hide()
@@ -231,6 +232,41 @@ end
 local function HideInspectDisplay()
     HideSlotPool(inspPool)
     if avgInspectFS then avgInspectFS:Hide() end
+end
+
+-- [STYLE] Keep the upgrade level beside ilvl; sockets follow its outer edge.
+local TRACK_QUALITY = {
+    Explorer = 0, Adventurer = 1, Veteran = 2, Champion = 3, Hero = 4, Myth = 5,
+    ["탐험가"] = 0, ["모험가"] = 1, ["노련가"] = 2, ["챔피언"] = 3, ["영웅"] = 4, ["신화"] = 5,
+}
+local function UpdateUpgradeTrack(data, link, id, size, flags, color)
+    if ItemLevel.db.showUpgradeTrack == false or not C_Item.GetItemUpgradeInfo then return end
+    local ok, info = pcall(C_Item.GetItemUpgradeInfo, link)
+    if not ok or (issecretvalue and issecretvalue(info)) or type(info) ~= "table" then return end
+    if issecrettable and issecrettable(info) then return end
+    local current, maximum, track = info.currentLevel, info.maxLevel, info.trackString
+    if issecretvalue and (issecretvalue(current) or issecretvalue(maximum) or issecretvalue(track)) then return end
+    if type(current) ~= "number" or type(maximum) ~= "number"
+        or current < 1 or maximum < current then return end
+    local quality = TRACK_QUALITY[track or ""]
+    color = quality and ITEM_QUALITY_COLORS[quality].color or color
+    local label = data.trackFS
+    label:SetFont(STANDARD_TEXT_FONT, math.max(8, size - 2), flags)
+    label:SetText(current .. "/" .. maximum)
+    if current == maximum then
+        label:SetTextColor(ns.ReadyStatus.Unpack(ns.ReadyStatus.Token("text", "dim")))
+    else
+        label:SetTextColor(color.r, color.g, color.b)
+    end
+    label:ClearAllPoints()
+    if IsRight(id) and id ~= SlotIDs.MainHandSlot then
+        label:SetPoint("RIGHT", data.ilvlFS, "LEFT", -3, 0)
+        label:SetJustifyH("RIGHT")
+    else
+        label:SetPoint("LEFT", data.ilvlFS, "RIGHT", 3, 0)
+        label:SetJustifyH("LEFT")
+    end
+    label:Show()
 end
 
 --------------------------------------------------------------------------------
@@ -253,6 +289,7 @@ local function UpdateSelfSlot(button)
         d = { gems = {} }
         d.ilvlFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.ilvlFS:SetFont(STANDARD_TEXT_FONT, db.selfIlvlSize, db.selfIlvlFlags)
+        d.trackFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.enchFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.enchFS:SetFont(STANDARD_TEXT_FONT, db.selfEnchantSize, db.selfEnchantFlags)
         selfPool[button] = d
@@ -263,6 +300,7 @@ local function UpdateSelfSlot(button)
     d.enchFS:SetFont(STANDARD_TEXT_FONT, db.selfEnchantSize, db.selfEnchantFlags)
 
     d.ilvlFS:Hide()
+    d.trackFS:Hide()
     d.enchFS:Hide()
     for _, tex in ipairs(d.gems) do
         tex:Hide()
@@ -301,6 +339,7 @@ local function UpdateSelfSlot(button)
             d.ilvlFS:SetJustifyH("LEFT")
         end
         d.ilvlFS:Show()
+        UpdateUpgradeTrack(d, link, id, db.selfIlvlSize, db.selfIlvlFlags, col)
     end
 
     -- 인챈트 표시 (아이템 링크 파싱 + C_TooltipInfo)
@@ -359,10 +398,10 @@ local function UpdateSelfSlot(button)
                     (i - 1) * (db.selfGemSize + spacing) - ((totalSockets - 1) * (db.selfGemSize + spacing) / 2), -2)
             elseif IsRight(id) then
                 local off = -((i - 1) * (db.selfGemSize + spacing) + 5)
-                tex:SetPoint("RIGHT", d.ilvlFS, "LEFT", off, 0)
+                tex:SetPoint("RIGHT", d.trackFS:IsShown() and d.trackFS or d.ilvlFS, "LEFT", off, 0)
             else
                 local off = (i - 1) * (db.selfGemSize + spacing) + 5
-                tex:SetPoint("LEFT", d.ilvlFS, "RIGHT", off, 0)
+                tex:SetPoint("LEFT", d.trackFS:IsShown() and d.trackFS or d.ilvlFS, "RIGHT", off, 0)
             end
             tex:Show()
         end
@@ -425,6 +464,7 @@ local function UpdateInspectSlot(button, unit)
         d = { gems = {} }
         d.ilvlFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.ilvlFS:SetFont(STANDARD_TEXT_FONT, db.inspIlvlSize, db.inspIlvlFlags)
+        d.trackFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.enchFS = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         d.enchFS:SetFont(STANDARD_TEXT_FONT, db.inspEnchantSize, db.inspEnchantFlags)
         inspPool[button] = d
@@ -435,6 +475,7 @@ local function UpdateInspectSlot(button, unit)
     d.enchFS:SetFont(STANDARD_TEXT_FONT, db.inspEnchantSize, db.inspEnchantFlags)
 
     d.ilvlFS:Hide()
+    d.trackFS:Hide()
     d.enchFS:Hide()
     for _, tex in ipairs(d.gems) do
         tex:Hide()
@@ -486,6 +527,7 @@ local function UpdateInspectSlot(button, unit)
             d.ilvlFS:SetJustifyH("LEFT")
         end
         d.ilvlFS:Show()
+        UpdateUpgradeTrack(d, link, id, db.inspIlvlSize, db.inspIlvlFlags, col)
     end
 
     -- 인챈트 표시 (아이템 링크 파싱 + C_TooltipInfo)
@@ -544,10 +586,10 @@ local function UpdateInspectSlot(button, unit)
                     (i - 1) * (db.inspGemSize + spacing) - ((totalSockets - 1) * (db.inspGemSize + spacing) / 2), -2)
             elseif IsRight(id) then
                 local off = -((i - 1) * (db.inspGemSize + spacing) + 5)
-                tex:SetPoint("RIGHT", d.ilvlFS, "LEFT", off, 0)
+                tex:SetPoint("RIGHT", d.trackFS:IsShown() and d.trackFS or d.ilvlFS, "LEFT", off, 0)
             else
                 local off = (i - 1) * (db.inspGemSize + spacing) + 5
-                tex:SetPoint("LEFT", d.ilvlFS, "RIGHT", off, 0)
+                tex:SetPoint("LEFT", d.trackFS:IsShown() and d.trackFS or d.ilvlFS, "RIGHT", off, 0)
             end
             tex:Show()
         end

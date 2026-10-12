@@ -575,6 +575,7 @@ function ns:InitConfigTree()
             { type = "header", label = L["RCA_CHECK_SETTINGS"] },
             { type = "slider", key = "profile.ReadyCheckAssistant.minDurabilityPercent", label = L["RCA_MIN_DURABILITY"], min = 5, max = 100, step = 5, onChange = RefreshReadyCheckAssistant },
             { type = "toggle", key = "profile.ReadyCheckAssistant.hideInCombat", label = L["RCA_HIDE_IN_COMBAT"], onChange = RefreshReadyCheckAssistant },
+            { type = "toggle", key = "profile.ReadyCheckAssistant.showOptional", label = L["RCA_SHOW_OPTIONAL"], onChange = RefreshReadyCheckAssistant }, -- [STYLE]
 
             { type = "header", label = L["RCA_LOADOUT_SETTINGS"] },
             { type = "input", key = "profile.ReadyCheckAssistant.mplusLoadouts", label = L["RCA_MPLUS_LOADOUTS"], inputWidth = 300, onChange = RefreshReadyCheckAssistant },
@@ -687,12 +688,15 @@ function ns:InitConfigTree()
             { type = "header", label = L["RAIDPREP_CHECK_SETTINGS"] },
             { type = "toggle", key = "profile.RaidPreparation.checkFood", label = L["RAIDPREP_CHECK_FOOD"], onChange = RefreshRaidPreparation },
             { type = "toggle", key = "profile.RaidPreparation.checkFlask", label = L["RAIDPREP_CHECK_FLASK"], onChange = RefreshRaidPreparation },
-            { type = "toggle", key = "profile.RaidPreparation.checkRune", label = L["RAIDPREP_CHECK_RUNE"], onChange = RefreshRaidPreparation },
             { type = "toggle", key = "profile.RaidPreparation.checkRaidBuffs", label = L["RAIDPREP_CHECK_RAIDBUFF"], onChange = RefreshRaidPreparation },
             { type = "toggle", key = "profile.RaidPreparation.checkWeaponEnchant", label = L["RAIDPREP_CHECK_WEAPON"], onChange = RefreshRaidPreparation },
             { type = "toggle", key = "profile.RaidPreparation.checkDurability", label = L["RAIDPREP_CHECK_DURABILITY"], onChange = RefreshRaidPreparation },
             { type = "slider", key = "profile.RaidPreparation.minimumBuffMinutes", label = L["RAIDPREP_MIN_BUFF_MINUTES"], min = 0, max = 60, step = 1, onChange = RefreshRaidPreparation },
             { type = "slider", key = "profile.RaidPreparation.durabilityThreshold", label = L["RAIDPREP_DURABILITY_THRESHOLD"], min = 5, max = 100, step = 5, onChange = RefreshRaidPreparation },
+
+            { type = "header", label = L["RAIDPREP_OPTIONAL_HEADER"] }, -- [STYLE]
+            { type = "toggle", key = "profile.RaidPreparation.checkRune", label = L["RAIDPREP_CHECK_RUNE"], onChange = RefreshRaidPreparation },
+            { type = "toggle", key = "profile.RaidPreparation.checkVantus", label = L["RAIDPREP_CHECK_VANTUS"], onChange = RefreshRaidPreparation },
 
             { type = "header", label = L["RAIDPREP_RAIDBUFF_SETTINGS"] },
             { type = "toggle", key = "profile.RaidPreparation.raidBuffAttackPower", label = L["RAIDPREP_BUFF_ATTACK_POWER"], onChange = RefreshRaidPreparation },
@@ -705,11 +709,13 @@ function ns:InitConfigTree()
             { type = "header", label = L["RAIDPREP_REPORT_SETTINGS"] },
             { type = "toggle", key = "profile.RaidPreparation.autoReport", label = L["RAIDPREP_AUTO_REPORT"] },
             { type = "toggle", key = "profile.RaidPreparation.reportUnknown", label = L["RAIDPREP_REPORT_UNKNOWN_OPTION"] },
+            { type = "toggle", key = "profile.RaidPreparation.reportOptional", label = L["RAIDPREP_REPORT_OPTIONAL"] },
 
             { type = "header", label = L["RAIDPREP_CUSTOM_IDS"] },
             { type = "input", key = "profile.RaidPreparation.customFoodSpellIDs", label = L["RAIDPREP_CUSTOM_FOOD_IDS"], inputWidth = 320, onChange = RefreshRaidPreparation },
             { type = "input", key = "profile.RaidPreparation.customFlaskSpellIDs", label = L["RAIDPREP_CUSTOM_FLASK_IDS"], inputWidth = 320, onChange = RefreshRaidPreparation },
             { type = "input", key = "profile.RaidPreparation.customRuneSpellIDs", label = L["RAIDPREP_CUSTOM_RUNE_IDS"], inputWidth = 320, onChange = RefreshRaidPreparation },
+            { type = "input", key = "profile.RaidPreparation.customVantusSpellIDs", label = L["RAIDPREP_CUSTOM_VANTUS_IDS"], inputWidth = 320, onChange = RefreshRaidPreparation },
 
             { type = "header", label = L["RAIDPREP_WINDOW_SETTINGS"] },
             { type = "slider", key = "profile.RaidPreparation.scale", label = L["SCALE"], min = 0.7, max = 1.4, step = 0.05, onChange = RefreshRaidPreparation },
@@ -984,6 +990,7 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.ItemLevel.showItemLevel",    label = L["ITEMLEVEL_SHOW_ILVL"], onChange = RefreshItemLevel },
             { type = "toggle", key = "profile.ItemLevel.showEnchant",      label = L["ITEMLEVEL_SHOW_ENCHANT"], onChange = RefreshItemLevel },
             { type = "toggle", key = "profile.ItemLevel.showGems",         label = L["ITEMLEVEL_SHOW_GEMS"], onChange = RefreshItemLevel },
+            { type = "toggle", key = "profile.ItemLevel.showUpgradeTrack", label = L["ITEMLEVEL_SHOW_UPGRADE_TRACK"], onChange = RefreshItemLevel }, -- [STYLE]
             { type = "toggle", key = "profile.ItemLevel.showAverageIlvl",  label = L["ITEMLEVEL_SHOW_AVG"], onChange = RefreshItemLevel },
             { type = "toggle", key = "profile.ItemLevel.showEnhancedStats",label = L["ITEMLEVEL_SHOW_ENHANCED"], onChange = RefreshItemLevel },
 

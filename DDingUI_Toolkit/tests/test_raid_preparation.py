@@ -46,7 +46,7 @@ def raid_runtime(locale="koKR"):
         module.roster = {}
         for i=1,20 do
             module.roster[i]={name="Player"..i.."-Realm",classToken="PRIEST",subgroup=1,
-                ready=true,food=true,flask=true,rune=true,raidBuff=true,weapon=true,durability=100}
+                ready=true,food=true,flask=true,rune=true,vantus=true,raidBuff=true,weapon=true,durability=100}
         end
         module:ShowWindow(false,true)
         display = module.frame
@@ -74,12 +74,12 @@ def test_strip_layout_and_auto_close_lifecycle():
         lua = raid_runtime(locale)
         lua.execute('''
             local L, styles = ns.L, ns.ReadyStatus
-            assert(display.width==372 and display.height==92)
+            assert(display.width==412 and display.height==92)
             assert(display.rows==nil and display.scrollTrack==nil and display.declinedNames==nil)
-            assert(#display.icons==6 and #display.gauge.segments==10)
+            assert(#display.icons==7 and #display.gauge.segments==10)
             for i, cell in ipairs(display.icons) do
                 assert(cell.width==32 and cell.height==32 and cell.badge.width>=16 and cell.badge.height==16)
-                assert(cell.points.TOPLEFT.x==12+(i-1)*40 and cell.points.TOPLEFT.y==-46)
+                assert(cell.points.TOPLEFT.x==12+(i-1)*40+(i>5 and 9 or 0) and cell.points.TOPLEFT.y==-46)
                 assert(cell.icon.texture==module.Items[i].icon)
             end
             for _, r in ipairs(descendants(display)) do
@@ -93,7 +93,7 @@ def test_strip_layout_and_auto_close_lifecycle():
                 assert(display.headline:GetStringWidth()+6+display.replies:GetStringWidth()<=display.gauge.width, key)
             end
             assert(display.gauge.points.TOPLEFT.x+display.gauge.width+8+display.reportButton.width+4
-                +display.refreshButton.width+4+18+8<=372)
+                +display.refreshButton.width+4+18+8<=412)
             display.hint:SetText(L.RAIDPREP_ICON_HINT)
             for line in display.hint.text:gmatch("[^\\n]+") do
                 local probe=display:CreateFontString(); probe:SetFont("f",12); probe:SetText(line)
@@ -105,7 +105,7 @@ def test_strip_layout_and_auto_close_lifecycle():
             assert(display.count.text=="20" and display.total.text=="/20")
             assert(display.count.textColor[2]==styles.Color("ok")[2])
             assert(display.headline.text==L.RAIDPREP_COMPLETE)
-            assert(badges()=="ok,ok,ok,ok,ok,ok", badges())
+            assert(badges()=="ok,ok,ok,ok,ok,ok,ok", badges())
             for _, segment in ipairs(display.gauge.segments) do assert(segment.color[2]==styles.Color("ok")[2]) end
             display.scripts.OnUpdate(display,1.6)
             assert(display.shown and display.alpha<1 and display.alpha>0)
@@ -115,7 +115,7 @@ def test_strip_layout_and_auto_close_lifecycle():
             assert(not module.fullyReady and display.closeElapsed==nil and display.alpha==1)
             assert(display.headline.text==L.RAIDPREP_INCOMPLETE)
             assert(display.count.textColor[1]==styles.Color("warn")[1])
-            assert(badges()=="1bad,ok,ok,ok,ok,ok", badges())
+            assert(badges()=="1bad,ok,ok,ok,ok,ok,ok", badges())
             -- readiness gauge: 16 of 20 ready -> 8 of 10 segments
             for i=1,4 do module.roster[i].ready=nil end
             module.roster[5].ready=false
@@ -176,32 +176,32 @@ def test_badges_and_tooltips_list_missing_players():
             module:Refresh()
             -- food ok, flask 2 (one missing -> red), rune unknown only (no border), raid buff ok,
             -- weapon 2 red, durability 1 warn (yellow)
-            assert(badges()=="ok,2bad,-,ok,2bad,1warn", badges())
+            assert(badges()=="ok,2bad,ok,2bad,1warn,-,ok", badges())
             local flask=display.icons[2]
             assert(flask.badge.fill.color[1]==styles.Color("bad")[1])
-            assert(display.icons[6].badge.fill.color[1]==styles.Color("warn")[1])
+            assert(display.icons[5].badge.fill.color[1]==styles.Color("warn")[1])
             flask.scripts.OnEnter(flask)
             assert(GameTooltip.shown and GameTooltip.owner==flask)
             assert(GameTooltip.lines[1].text==L.RAIDPREP_COLUMN_FLASK)
             assert(GameTooltip.lines[2].text=="Player2" and GameTooltip.lines[2].g==1)
             assert(GameTooltip.lines[3].text=="Player3  "..L.RAIDPREP_LOW and GameTooltip.lines[3].g==0.78)
             assert(#GameTooltip.lines==3)
-            local rune=display.icons[3]
+            local rune=display.icons[6]
             rune.scripts.OnEnter(rune)
             assert(GameTooltip.lines[2].text==L.RAIDPREP_UNKNOWN_GROUP..": Player4")
-            local durability=display.icons[6]
+            local durability=display.icons[5]
             durability.scripts.OnEnter(durability)
             assert(GameTooltip.lines[2].text=="Player5  12%")
             -- hovered tooltip follows updates
             module.roster[5].durability=100
             module:Refresh()
             assert(GameTooltip.shown and GameTooltip.lines[2].text==L.RAIDPREP_ALL_OK)
-            assert(badges()=="ok,2bad,-,ok,2bad,ok", badges())
+            assert(badges()=="ok,2bad,ok,2bad,ok,-,ok", badges())
             -- disabled check: dimmed icon, no badge
             module.db.checkWeaponEnchant=false
             module:Refresh()
-            assert(display.icons[5].alpha==0.35 and not display.icons[5].badge.shown and display.icons[5].state==nil)
-            display.icons[5].scripts.OnEnter(display.icons[5])
+            assert(display.icons[4].alpha==0.35 and not display.icons[4].badge.shown and display.icons[4].state==nil)
+            display.icons[4].scripts.OnEnter(display.icons[4])
             assert(GameTooltip.lines[2].text==L.RAIDPREP_ITEM_OFF)
             -- ready-check replies on the number
             module.roster[8].ready=false
@@ -248,3 +248,105 @@ def test_no_hardcoded_colours_or_glyph_icons():
         assert "SetColorTexture(0." not in source and "SetTextColor(0." not in source and "SetTextColor(1," not in source, rel
         for glyph in ("↻", "✕", "✖", "✓"):
             assert glyph not in source, (rel, glyph)
+
+
+def test_optional_badges_reports_and_ready_completion():
+    for locale in ("koKR", "enUS"):
+        lua = raid_runtime(locale)
+        lua.execute('''
+            local L, RS=ns.L,ns.ReadyStatus
+            module.db.reportUnknown=true
+            module.roster[1].rune=false; module.roster[2].vantus="LOW"
+            module.roster[3].rune=nil; module.roster[3].vantus=nil
+            module:Refresh()
+            assert(module.fullyReady and display.headline.text==L.RAIDPREP_COMPLETE)
+            assert(display.closeElapsed==0)
+            assert(module:IsRecordComplete(module.roster[1],true))
+            assert(display.icons[6].state=="opt" and display.icons[7].state=="opt")
+            assert(display.icons[6].badgeCount==1 and display.icons[7].badgeCount==1)
+            assert(display.icons[7].badge.fill.color[1]==RS.Token("text","dim")[1])
+            assert(display.icons[7].badge.text.textColor[1]==RS.Token("bg","main")[1])
+            assert(display.icons[7].icon.vertexColor[1]==RS.Token("text","normal")[1])
+            assert(not display.icons[7].wellTint.shown)
+            display.icons[7].scripts.OnEnter(display.icons[7])
+            assert(GameTooltip.lines[1].text==L.RCA_ROW_VANTUS.." · "..L.RAIDPREP_OPTIONAL_LABEL)
+            assert(GameTooltip.lines[#GameTooltip.lines].text==L.RAIDPREP_OPTIONAL_NOTE)
+            local groups=module:BuildReportGroups()
+            assert(#groups.rune==0 and #groups.vantus==0 and #groups.unknown==0)
+            function IsInGroup() return true end
+            sent={}; function SendChatMessage(msg) sent[#sent+1]=msg end
+            local function report(auto)
+                timers={}; sent={}; assert(module:SendReport(auto))
+                for _,timer in ipairs(timers) do timer.fn() end
+                return table.concat(sent,"|")
+            end
+            assert(report(true)==L.RAIDPREP_REPORT_ALL_READY)
+            module.db.reportOptional=true
+            for _,auto in ipairs({false,true}) do
+                local text=report(auto)
+                assert(text:find(L.RAIDPREP_REPORT_RUNE.."Player1",1,true))
+                assert(text:find(L.RAIDPREP_REPORT_VANTUS.."Player2",1,true))
+                assert(text:find(L.RAIDPREP_REPORT_UNKNOWN.."Player3",1,true))
+            end
+            module.db.checkVantus=false; module:Refresh()
+            assert(display.icons[7].alpha==.35 and not display.icons[7].badge.shown)
+            assert(#module:BuildReportGroups().vantus==0)
+            display.scripts.OnUpdate(display,1.8); assert(not display.shown)
+            module.db.checkVantus=true
+            module:BuildTestRoster(); module.testMode=true; module:Refresh()
+            assert(module.itemSummary[6].state=="opt" and module.itemSummary[7].state=="opt")
+        ''')
+
+
+def test_vantus_scanner_preserves_returns_and_refreshes_records():
+    lua = raid_runtime()
+    lua.execute('''
+        function UnitExists() return true end
+        function UnitIsConnected() return true end
+        function UnitIsUnit() return false end
+        local secret={}; function issecretvalue(v) return rawequal(v,secret) end
+        C_Secrets={ShouldAurasBeSecret=function() return false end}
+        local auras={}
+        C_UnitAuras={GetAuraDataByIndex=function(_,i) return auras[i] end}
+        module.db.minimumBuffMinutes=10
+        module.db.customVantusSpellIDs="999001, 999002"
+        module:BuildSpellSets()
+        for id in pairs(module.vantusIDs) do
+            auras={{spellId=id,name=secret,icon=456,expirationTime=clock+3600}}
+            local food,flask,rune,_,_,_,found,icons,vantus,remaining=module:ScanUnitAuras("raid1")
+            assert(food==false and flask==false and rune==false and type(found)=="table")
+            assert(vantus==true and remaining==3600 and icons.vantus==456)
+        end
+        for _, name in ipairs({"반투스 룬: 새 보스","Vantus Rune: New Boss"}) do
+            auras={{spellId=999999,name=name,expirationTime=clock+32}}
+            local values={module:ScanUnitAuras("raid1")}
+            assert(values[9]=="LOW" and values[10]==32)
+        end
+        auras={{spellId=999999,name=secret,expirationTime=secret}}
+        local food,_,_,_,_,_,found,_,vantus=module:ScanUnitAuras("raid1")
+        assert(food==false and type(found)=="table" and vantus==nil)
+        auras={{spellId=1276687,icon=777,expirationTime=clock+3600}}
+        local record=module:BuildRecord("raid1","Player1-Realm",1,1,"MAGE","DAMAGER",0)
+        assert(record.vantus and record.vantusRemaining==3600)
+        module.roster={record}; auras={}; module:RefreshUnitAura("raid1")
+        assert(record.vantus==false and record.vantusRemaining==nil)
+        auras={{spellId=secret,name=secret,expirationTime=secret}}
+        module:RefreshUnitAura("raid1"); assert(record.vantus==nil)
+        C_Secrets.ShouldAurasBeSecret=function() return true end
+        assert(select(9,module:ScanUnitAuras("raid1"))==nil)
+        C_Secrets.ShouldAurasBeSecret=function() return false end
+        C_UnitAuras.GetAuraDataByIndex=function() error("restricted") end
+        assert(select(9,module:ScanUnitAuras("raid1"))==nil)
+    ''')
+    lua.execute((ROOT / "Modules/ReadyCheckAssistant/ReadyCheckAssistant.lua").read_text(encoding="utf-8-sig"),
+                "DDingUI_Toolkit", lua.globals().ns)
+    lua.execute('''
+        C_UnitAuras.GetAuraDataByIndex=function(_,i)
+            if i==1 then return {spellId=999888,name="New custom buff",expirationTime=clock+3600} end
+        end
+        local personal=ns.ReadyCheckAssistant
+        assert(personal:GetConsumables().vantus.value==false)
+        module.db.customVantusSpellIDs="999888"
+        module:ApplySettings()
+        assert(personal:GetConsumables().vantus.value==true, "shared custom IDs must refresh the cached personal scanner")
+    ''')

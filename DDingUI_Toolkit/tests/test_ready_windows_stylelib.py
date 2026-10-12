@@ -60,7 +60,7 @@ def test_windows_use_rounded_stylelib_surfaces_and_series_title_bar():
         assert(panel._ddslRounded, "panel must be rounded")
         assert(panel.titleBar and panel.titleBar.brandLogo, "series title bar with logo rings")
         assert(panel.closeButton == panel.titleBar.closeBtn and not panel.titleBar.verText:IsShown())
-        assert(panel:GetWidth() == 300 and panel:GetHeight() == 220)
+        assert(panel:GetWidth() == 323 and panel:GetHeight() == 260)
         rca:EnterEditPreview()
         assert(panel:IsShown())
         assert(panel.summaryPill.fill._ddslRoundTex and panel.rows[1].card._ddslRoundTex)
@@ -76,7 +76,7 @@ def test_windows_use_rounded_stylelib_surfaces_and_series_title_bar():
         function prep:UpdateDynamicRoster() end
         prep:ShowWindow(false)
         local strip = prep.frame
-        assert(strip._ddslRounded and strip:GetWidth() == 372 and strip:GetHeight() == 92)
+        assert(strip._ddslRounded and strip:GetWidth() == 412 and strip:GetHeight() == 92)
         assert(strip.icons[1].badge:IsShown() and strip.icons[1].badge.fill._ddslRoundTex)
         assert(strip.gauge.segments[1]._ddslRoundTex)
         assert(strip.icons[1].state == "bad" and strip.icons[1].badgeCount == 1)
@@ -91,7 +91,7 @@ def test_own_item_icons_are_64px_top_left_tga():
 
     source = (ROOT / "UI/ReadyStatus.lua").read_text(encoding="utf-8")
     names = re.findall(r'ICON_PATH \.\. "(\w+)"', source)
-    assert sorted(names) == ["durability", "flask", "food", "raidbuff", "rune", "weapon"]
+    assert sorted(names) == ["durability", "flask", "food", "raidbuff", "rune", "vantus", "weapon"]
     for name in names:
         path = ROOT / f"Media/ReadyStatus/ready_{name}.tga"
         header = path.read_bytes()[:18]

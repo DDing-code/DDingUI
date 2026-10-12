@@ -10,9 +10,9 @@ ns.RaidPreparation = RaidPreparation
 
 local COMM_PREFIX = "DDTREADY"
 local DURABILITY_PREFIX = "LibDRBLT"
--- [STYLE] Compact ready-check strip (series mock-up C): 372x92, rounded 10, no title bar.
+-- [STYLE] Compact ready-check strip with separate optional items, no title bar.
 -- Shared visuals (icons, badges, status colours, buttons) live in UI/ReadyStatus.lua.
-local FRAME_WIDTH, FRAME_HEIGHT = 372, 92
+local FRAME_WIDTH, FRAME_HEIGHT = 412, 92
 local GAUGE_SEGMENTS = 10
 
 -- Current retail lists follow the 12.1 MRT RaidCheck data. Custom IDs can be
@@ -41,6 +41,13 @@ local RUNE_IDS = {
     [224001] = true, [270058] = true, [317065] = true, [347901] = true,
     [367405] = true, [393438] = true, [453250] = true, [1234969] = true,
     [1242347] = true, [1264426] = true,
+}
+
+-- [12.0.1] Boss auras linked from ko.wowhead.com/spell=1276718 (Radiant rune).
+local VANTUS_IDS = {
+    [1276685] = true, [1276705] = true, [1276709] = true, [1276691] = true,
+    [1300174] = true, [1276712] = true, [1276669] = true, [1276715] = true,
+    [1276687] = true, [1276682] = true,
 }
 
 -- 12.1 raid-wide class buffs, aligned with MRT RaidCheck's current retail list.
@@ -230,6 +237,7 @@ function RaidPreparation:BuildSpellSets()
     self.foodIDs = ParseSpellIDs(db.customFoodSpellIDs, CopyTable(FOOD_IDS))
     self.flaskIDs = ParseSpellIDs(db.customFlaskSpellIDs, CopyTable(FLASK_IDS))
     self.runeIDs = ParseSpellIDs(db.customRuneSpellIDs, CopyTable(RUNE_IDS))
+    self.vantusIDs = ParseSpellIDs(db.customVantusSpellIDs, CopyTable(VANTUS_IDS)) -- [REFACTOR]
 end
 
 function RaidPreparation:ScanUnitAuras(unit)
@@ -238,10 +246,11 @@ function RaidPreparation:ScanUnitAuras(unit)
     end
     local db = self.db or {}
     local minimumSeconds = Clamp(db.minimumBuffMinutes, 0, 60, 10) * 60
-    local food, flask, rune = false, false, false
-    local foodRemaining, flaskRemaining, runeRemaining
+    local food, flask, rune, vantus = false, false, false, false
+    local foodRemaining, flaskRemaining, runeRemaining, vantusRemaining
     local icons = {}
     local incomplete = false
+    local vantusUnknown = false
     local raidBuffsFound = {}
     if C_Secrets and C_Secrets.ShouldAurasBeSecret then
         local ok, hidden = pcall(C_Secrets.ShouldAurasBeSecret)
@@ -262,6 +271,7 @@ function RaidPreparation:ScanUnitAuras(unit)
         if not IsSecretTable(aura) and type(aura) == "table" then
             if IsSecret(aura.spellId) then incomplete = true; raidBuffsFound = nil end
             local spellID = SafeNumber(aura.spellId)
+            local auraName = SafeString(aura.name)
             local icon = SafeNumber(aura.icon)
             local longEnough, remaining = IsAuraLongEnough(aura.expirationTime, minimumSeconds)
             local raidBuffKey = spellID and RAID_BUFF_BY_SPELL_ID[spellID]
@@ -277,15 +287,25 @@ function RaidPreparation:ScanUnitAuras(unit)
                 rune, runeRemaining = MergeStatus(rune, longEnough, remaining)
                 icons.rune = icon or icons.rune
             end
+            -- [12.0.1] Public names cover new boss runes without guessing their IDs.
+            if spellID and self.vantusIDs[spellID]
+                or auraName and (auraName:find("반투스 룬", 1, true) == 1 or auraName:find("Vantus Rune", 1, true) == 1) then
+                vantus, vantusRemaining = MergeStatus(vantus, longEnough, remaining)
+                icons.vantus = icon or icons.vantus
+            elseif IsSecret(aura.name) then
+                vantusUnknown = true
+            end
         end
     end
     if incomplete then
         if food == false then food = nil end
         if flask == false then flask = nil end
         if rune == false then rune = nil end
+        if vantus == false then vantus = nil end
         raidBuffsFound = nil
     end
-    return food, flask, rune, foodRemaining, flaskRemaining, runeRemaining, raidBuffsFound, icons
+    if vantusUnknown and vantus == false then vantus = nil end
+    return food, flask, rune, foodRemaining, flaskRemaining, runeRemaining, raidBuffsFound, icons, vantus, vantusRemaining
 end
 
 function RaidPreparation:GetSelfDurability()
@@ -590,7 +610,7 @@ function RaidPreparation:BuildRecord(unit, name, subgroup, index, classToken, ro
     name = SafeString(name)
     if not name then return nil end
     subgroup = math.floor(SafeNumber(subgroup) or 1)
-    local food, flask, rune, foodRemaining, flaskRemaining, runeRemaining, raidBuffsFound = self:ScanUnitAuras(unit)
+    local food, flask, rune, foodRemaining, flaskRemaining, runeRemaining, raidBuffsFound, _, vantus, vantusRemaining = self:ScanUnitAuras(unit)
     local remote
     if SafeBooleanCall(UnitIsUnit, unit, "player") then
         local durability, mainHand, offHand = self:GetSelfGearStatus()
@@ -612,9 +632,11 @@ function RaidPreparation:BuildRecord(unit, name, subgroup, index, classToken, ro
         food = food,
         flask = flask,
         rune = rune,
+        vantus = vantus,
         foodRemaining = foodRemaining,
         flaskRemaining = flaskRemaining,
         runeRemaining = runeRemaining,
+        vantusRemaining = vantusRemaining,
         raidBuffsFound = raidBuffsFound,
         weapon = weapon,
         offHand = remote and remote.offHand or nil,
@@ -680,7 +702,6 @@ end
 function RaidPreparation:IsRecordComplete(record, includeReady)
     if not self:IsCheckedValue(record.food, "food") then return false end
     if not self:IsCheckedValue(record.flask, "flask") then return false end
-    if not self:IsCheckedValue(record.rune, "rune") then return false end
     if not self:IsCheckedValue(record.raidBuff, "raidBuff") then return false end
     if not self:IsCheckedValue(record.weapon, "weapon") then return false end
     if not self:IsCheckedValue(record.durability, "durability") then return false end
@@ -712,7 +733,7 @@ function RaidPreparation:RefreshUnitAura(unit)
         if record.unit == unit then
             record.food, record.flask, record.rune,
                 record.foodRemaining, record.flaskRemaining, record.runeRemaining,
-                record.raidBuffsFound = self:ScanUnitAuras(unit)
+                record.raidBuffsFound, record.icons, record.vantus, record.vantusRemaining = self:ScanUnitAuras(unit)
             self:ApplyRaidBuffStatus(self.roster)
             break
         end
@@ -738,12 +759,13 @@ local OWN_ICONS = ns.ReadyStatus and ns.ReadyStatus.ITEM_ICONS or {}
 local ITEMS = {
     { key = "food", label = "RAIDPREP_COLUMN_FOOD", option = "checkFood", icon = OWN_ICONS.food or 134062 },
     { key = "flask", label = "RAIDPREP_COLUMN_FLASK", option = "checkFlask", icon = OWN_ICONS.flask or 134830 },
-    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", option = "checkRune", icon = OWN_ICONS.rune or 134419 },
     { key = "raidBuff", label = "RAIDPREP_COLUMN_RAIDBUFF", option = "checkRaidBuffs",
       icon = OWN_ICONS.raidBuff or "Interface\\Icons\\Spell_Holy_MagicalSentry" },
     { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", option = "checkWeaponEnchant", icon = OWN_ICONS.weapon or 135274 },
     { key = "durability", label = "RAIDPREP_COLUMN_DURABILITY", option = "checkDurability",
       icon = OWN_ICONS.durability or "Interface\\Icons\\Trade_BlackSmithing" },
+    { key = "rune", label = "RCA_ROW_RUNE", option = "checkRune", optional = true, icon = OWN_ICONS.rune or 134419 },
+    { key = "vantus", label = "RCA_ROW_VANTUS", option = "checkVantus", optional = true, icon = OWN_ICONS.vantus or 134419 },
 }
 RaidPreparation.Items = ITEMS
 
@@ -794,7 +816,7 @@ function RaidPreparation:SummarizeItems(source)
         if entry.off then
             entry.state = nil
         elseif entry.problems > 0 then
-            entry.state = #entry.bad > 0 and "bad" or "warn"
+            entry.state = item.optional and "opt" or (#entry.bad > 0 and "bad" or "warn")
         elseif #entry.unknown == 0 and #source > 0 then
             entry.state = "ok"
         end
@@ -808,7 +830,9 @@ local function ShowItemTooltip(cell)
     local entry = cell.entry
     local styles = RS()
     GameTooltip:SetOwner(cell, "ANCHOR_TOP")
-    GameTooltip:AddLine(L[entry.item.label], styles.RGB(styles.Token("text", "highlight")))
+    local title = L[entry.item.label]
+    if entry.item.optional then title = title .. " · " .. L["RAIDPREP_OPTIONAL_LABEL"] end
+    GameTooltip:AddLine(title, styles.RGB(styles.Token("text", "highlight")))
     if entry.off then
         GameTooltip:AddLine(L["RAIDPREP_ITEM_OFF"], styles.RGB(styles.Color(nil)))
     elseif entry.problems == 0 and #entry.unknown == 0 then
@@ -826,6 +850,9 @@ local function ShowItemTooltip(cell)
         for _, record in ipairs(entry.unknown) do names[#names + 1] = ShortName(record.name) end
         GameTooltip:AddLine(L["RAIDPREP_UNKNOWN_GROUP"] .. ": " .. table.concat(names, ", "),
             styles.RGB(styles.Color(nil)))
+    end
+    if entry.item.optional then
+        GameTooltip:AddLine(L["RAIDPREP_OPTIONAL_NOTE"], styles.RGB(styles.Token("text", "dim")))
     end
     GameTooltip:Show()
 end
@@ -960,7 +987,7 @@ end
 
 function RaidPreparation:BuildReportGroups()
     local groups = {
-        food = {}, flask = {}, rune = {}, raidBuff = {}, weapon = {}, durability = {}, unknown = {},
+        food = {}, flask = {}, rune = {}, vantus = {}, raidBuff = {}, weapon = {}, durability = {}, unknown = {},
     }
     for _, record in ipairs(self:CollectRoster()) do
         local name = ShortName(record.name)
@@ -970,9 +997,6 @@ function RaidPreparation:BuildReportGroups()
         end
         if self.db.checkFlask ~= false and record.flask ~= true then
             if record.flask == nil then hasUnknown = true else groups.flask[#groups.flask + 1] = name end
-        end
-        if self.db.checkRune ~= false and record.rune ~= true then
-            if record.rune == nil then hasUnknown = true else groups.rune[#groups.rune + 1] = name end
         end
         if self.db.checkRaidBuffs ~= false and (record.raidBuffTotal or 0) > 0 and record.raidBuff ~= true then
             if record.raidBuff == nil then
@@ -990,6 +1014,15 @@ function RaidPreparation:BuildReportGroups()
                 hasUnknown = true
             elseif record.durability < Clamp(self.db.durabilityThreshold, 1, 100, 30) then
                 groups.durability[#groups.durability + 1] = name
+            end
+        end
+        -- [REFACTOR] Optional deficiencies are reported only when explicitly enabled.
+        if self.db.reportOptional == true then
+            for _, kind in ipairs({ "rune", "vantus" }) do
+                local option = kind == "rune" and "checkRune" or "checkVantus"
+                if self.db[option] ~= false and record[kind] ~= true then
+                    if record[kind] == nil then hasUnknown = true else groups[kind][#groups[kind] + 1] = name end
+                end
             end
         end
         if hasUnknown and self.db.reportUnknown == true then groups.unknown[#groups.unknown + 1] = name end
@@ -1028,10 +1061,11 @@ function RaidPreparation:SendReport(automatic)
         return false
     end
     local groups = self:BuildReportGroups()
-    local order = { "food", "flask", "rune", "raidBuff", "weapon", "durability", "unknown" }
+    local order = { "food", "flask", "raidBuff", "weapon", "durability", "unknown", "rune", "vantus" }
     local labels = {
         food = L["RAIDPREP_REPORT_FOOD"], flask = L["RAIDPREP_REPORT_FLASK"],
         rune = L["RAIDPREP_REPORT_RUNE"], raidBuff = L["RAIDPREP_REPORT_RAIDBUFF"],
+        vantus = L["RAIDPREP_REPORT_VANTUS"],
         weapon = L["RAIDPREP_REPORT_WEAPON"],
         durability = L["RAIDPREP_REPORT_DURABILITY"], unknown = L["RAIDPREP_REPORT_UNKNOWN"],
     }
@@ -1065,6 +1099,7 @@ function RaidPreparation:BuildTestRoster()
             food = index % 6 ~= 0,
             flask = index % 5 ~= 0 and true or "LOW",
             rune = index % 4 ~= 0,
+            vantus = index % 5 ~= 0,
             raidBuff = index % 6 ~= 0,
             raidBuffCount = index % 6 ~= 0 and 6 or 4,
             raidBuffTotal = 6,
@@ -1077,6 +1112,7 @@ function RaidPreparation:BuildTestRoster()
             foodRemaining = 2400,
             flaskRemaining = index % 5 == 0 and 240 or 3600,
             runeRemaining = 3600,
+            vantusRemaining = 3600,
         }
     end
     self.testRoster = result
@@ -1168,12 +1204,12 @@ function RaidPreparation:CreateFrame()
     frame.headline:SetPoint("BOTTOMLEFT", frame.gauge, "TOPLEFT", 0, 3)
     frame.headline:SetPoint("RIGHT", frame.replies, "LEFT", -6, 0)
 
-    -- Row 2: six 32px item icons with a status border and a missing-count badge
+    -- [STYLE] Five required icons | two optional icons with neutral badges.
     frame.icons = {}
     local size = styles.RAID_ICON
     for index, item in ipairs(ITEMS) do
         local cell = styles.CreateIcon(frame, size)
-        cell:SetPoint("TOPLEFT", 12 + (index - 1) * (size + 8), -46)
+        cell:SetPoint("TOPLEFT", 12 + (index - 1) * (size + 8) + (item.optional and 9 or 0), -46)
         cell:SetIcon(item.icon)
         cell:EnableMouse(true)
         cell.raidPrepItem = true
@@ -1182,7 +1218,11 @@ function RaidPreparation:CreateFrame()
         cell:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         frame.icons[index] = cell
     end
-    local hintLeft = 12 + #ITEMS * (size + 8)
+    frame.optionalDivider = frame:CreateTexture(nil, "ARTWORK")
+    frame.optionalDivider:SetPoint("TOPLEFT", 212, -50)
+    frame.optionalDivider:SetSize(1, 24)
+    frame.optionalDivider:SetColorTexture(styles.Unpack(styles.Token("border", "default")))
+    local hintLeft = 12 + #ITEMS * (size + 8) + 9
     frame.hint = styles.Text(frame, 12, styles.Color(nil), L["RAIDPREP_ICON_HINT"])
     frame.hint:SetPoint("TOPLEFT", hintLeft, -46)
     frame.hint:SetSize(FRAME_WIDTH - hintLeft - 12, size)
@@ -1196,9 +1236,12 @@ function RaidPreparation:CreateFrame()
 end
 
 function RaidPreparation:ApplySettings()
+    if SafeBooleanCall(InCombatLockdown) then self.settingsPending = true; return end -- [12.0.1]
+    self.settingsPending = nil
     self.db = EnsureDB()
     if not self.db then return end
     self:BuildSpellSets()
+    if self.roster and not self.testMode then self:CollectRoster() end
     if self.roster then self:ApplyRaidBuffStatus(self.roster) end
     local display = self:CreateFrame()
     display:SetScale(Clamp(self.db.scale, 0.7, 1.4, 1))
@@ -1207,6 +1250,10 @@ function RaidPreparation:ApplySettings()
     display:SetPoint(position.point or "CENTER", UIParent, position.relativePoint or "CENTER",
         Clamp(position.x, -1200, 1200, 0), Clamp(position.y, -800, 800, 10))
     self:Refresh()
+    if ns.ReadyCheckAssistant then -- [REFACTOR] Share updated custom spell IDs with the personal panel.
+        ns.ReadyCheckAssistant.consumableScanner = nil
+        ns.ReadyCheckAssistant:Refresh()
+    end
 end
 
 function RaidPreparation:ShowWindow(testMode, automatic)
@@ -1321,11 +1368,13 @@ eventFrame:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" then
         if active then RaidPreparation:RegisterLibDurability() end
         return
     end
+    if event == "PLAYER_REGEN_ENABLED" and RaidPreparation.settingsPending then RaidPreparation:ApplySettings() end
     if not active then return end
     if event == "READY_CHECK" then
         RaidPreparation:HandleReadyCheck(...)

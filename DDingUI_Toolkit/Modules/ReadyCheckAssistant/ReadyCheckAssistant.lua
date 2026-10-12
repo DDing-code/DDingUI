@@ -10,13 +10,13 @@ ns.ReadyCheckAssistant = ReadyCheckAssistant
 
 local DEFAULT_FONT = (SL and SL.Font and SL.Font.path) or "Fonts\\2002.TTF"
 local CHAT_PREFIX = ns.CHAT_PREFIX -- [STYLE] Core/Core.lua 공통 접두사
--- [STYLE] Compact checklist (series mock-up E): 300 wide, rounded 14, series title bar, six fixed
--- 26px rows (talents + five checks), no buttons. Shared visuals: UI/ReadyStatus.lua.
-local PANEL_WIDTH = 300
+-- [STYLE] Match the ready popup width and separate the two optional consumables.
+local PANEL_WIDTH = 323
 local TITLE_HEIGHT = 28
 local ROW_HEIGHT = 26
 local ROWS_TOP = TITLE_HEIGHT + 26 -- title bar + pill row
-local PANEL_HEIGHT = ROWS_TOP + 6 * ROW_HEIGHT + 10
+local OPTIONAL_HEIGHT = 14
+local PANEL_HEIGHT = ROWS_TOP + 7 * ROW_HEIGHT + OPTIONAL_HEIGHT + 10
 -- [STYLE] Toolkit's own item icons; game icons are the fallback when UI/ReadyStatus.lua is absent.
 local OWN_ICONS = ns.ReadyStatus and ns.ReadyStatus.ITEM_ICONS or {}
 local DURABILITY_ICON = OWN_ICONS.durability or "Interface\\Icons\\Trade_BlackSmithing"
@@ -249,10 +249,11 @@ end
 
 
 local CONSUMABLES = {
-    { key = "flask", label = "RAIDPREP_COLUMN_FLASK", icon = OWN_ICONS.flask or 134830 },
-    { key = "food", label = "RAIDPREP_COLUMN_FOOD", icon = OWN_ICONS.food or 134062 },
-    { key = "rune", label = "RAIDPREP_COLUMN_RUNE", rowLabel = "RCA_ROW_RUNE", icon = OWN_ICONS.rune or 134419 },
-    { key = "weapon", label = "RAIDPREP_COLUMN_WEAPON", icon = OWN_ICONS.weapon or 135274 },
+    { key = "flask", row = 2, label = "RAIDPREP_COLUMN_FLASK", icon = OWN_ICONS.flask or 134830 },
+    { key = "food", row = 3, label = "RAIDPREP_COLUMN_FOOD", icon = OWN_ICONS.food or 134062 },
+    { key = "weapon", row = 4, label = "RAIDPREP_COLUMN_WEAPON", icon = OWN_ICONS.weapon or 135274 },
+    { key = "rune", row = 6, optional = true, label = "RAIDPREP_COLUMN_RUNE", rowLabel = "RCA_ROW_RUNE", icon = OWN_ICONS.rune or 134419 },
+    { key = "vantus", row = 7, optional = true, label = "RAIDPREP_COLUMN_VANTUS", rowLabel = "RCA_ROW_VANTUS", icon = OWN_ICONS.vantus or 134419 },
 }
 
 function ReadyCheckAssistant:GetConsumables()
@@ -267,14 +268,16 @@ function ReadyCheckAssistant:GetConsumables()
                 customFoodSpellIDs = raidDB.customFoodSpellIDs,
                 customFlaskSpellIDs = raidDB.customFlaskSpellIDs,
                 customRuneSpellIDs = raidDB.customRuneSpellIDs,
+                customVantusSpellIDs = raidDB.customVantusSpellIDs,
             } }
             scanner.BuildSpellSets(self.consumableScanner)
         end
-        local food, flask, rune, foodTime, flaskTime, runeTime, _, icons =
+        local food, flask, rune, foodTime, flaskTime, runeTime, _, icons, vantus, vantusTime =
             scanner.ScanUnitAuras(self.consumableScanner, "player")
         result.food = { value = food, remaining = foodTime, icon = icons and icons.food }
         result.flask = { value = flask, remaining = flaskTime, icon = icons and icons.flask }
         result.rune = { value = rune, remaining = runeTime, icon = icons and icons.rune }
+        result.vantus = { value = vantus, remaining = vantusTime, icon = icons and icons.vantus }
     end
     local weapon = {}
     if GetWeaponEnchantInfo then
@@ -330,7 +333,7 @@ function ReadyCheckAssistant:CollectSnapshot()
     local consumableIssues = 0
     for _, definition in ipairs(CONSUMABLES) do
         local item = consumables[definition.key]
-        if not item or item.value ~= true then consumableIssues = consumableIssues + 1 end
+        if not definition.optional and (not item or item.value ~= true) then consumableIssues = consumableIssues + 1 end
     end
     if status == "READY" and consumableIssues > 0 then status = "CONSUMABLES" end
     return {
@@ -368,6 +371,9 @@ local function ShowRowTooltip(row)
     if row.clickHint then
         GameTooltip:AddLine(row.clickHint, styles.RGB(styles.Color(nil)))
     end
+    if row.optional then
+        GameTooltip:AddLine(L["RAIDPREP_OPTIONAL_NOTE"], styles.RGB(styles.Token("text", "dim")))
+    end
     GameTooltip:Show()
 end
 
@@ -394,6 +400,8 @@ function ReadyCheckAssistant:CreateFrame()
         local bar = SL.CreateTitleBar(frame, "MJToolkit", title, "", { rounded = true })
         bar:SetHeight(TITLE_HEIGHT)
         if bar.verText then bar.verText:Hide() end
+        bar.titleText:SetPoint("RIGHT", bar.closeBtn, "LEFT", -6, 0) -- [STYLE] narrow popup widths
+        bar.titleText:SetWordWrap(false)
         bar.closeBtn:SetScript("OnClick", Close)
         frame.titleBar = bar
         frame.closeButton = bar.closeBtn
@@ -412,11 +420,12 @@ function ReadyCheckAssistant:CreateFrame()
     frame.fontSizes[frame.summaryPill.text] = 12
     frame.fontSizes[frame.contextPill.text] = 12
 
-    -- Rows: talents, flask, food, rune, weapon, durability
+    -- [STYLE] Required rows, then a quiet optional group.
     frame.rows = {}
-    for index = 1, 6 do
+    for index = 1, 7 do
         local row = CreateFrame("Button", nil, frame)
-        row:SetPoint("TOPLEFT", 12, -(ROWS_TOP + (index - 1) * ROW_HEIGHT))
+        row.optional = index > 5
+        row:SetPoint("TOPLEFT", 12, -(ROWS_TOP + (index - 1) * ROW_HEIGHT + (row.optional and OPTIONAL_HEIGHT or 0)))
         row:SetSize(PANEL_WIDTH - 24, ROW_HEIGHT)
         row.card = styles.RoundFill(row:CreateTexture(nil, "BACKGROUND"), styles.Radius("row", 8))
         row.card:SetPoint("TOPLEFT", -6, 0)
@@ -435,6 +444,16 @@ function ReadyCheckAssistant:CreateFrame()
         row:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         frame.rows[index] = row
     end
+    frame.optionalHeader = CreateFrame("Frame", nil, frame)
+    frame.optionalHeader:SetPoint("TOPLEFT", 12, -(ROWS_TOP + 5 * ROW_HEIGHT))
+    frame.optionalHeader:SetSize(PANEL_WIDTH - 24, OPTIONAL_HEIGHT)
+    frame.optionalHeader.label = AddText(frame.optionalHeader, 12, styles.Token("text", "dim"), L["RAIDPREP_OPTIONAL_LABEL"])
+    frame.optionalHeader.label:SetPoint("LEFT", 0, 0)
+    local divider = frame.optionalHeader:CreateTexture(nil, "ARTWORK")
+    divider:SetPoint("LEFT", frame.optionalHeader.label, "RIGHT", 8, 0)
+    divider:SetPoint("RIGHT", 0, 0)
+    divider:SetHeight(1)
+    divider:SetColorTexture(styles.Unpack(styles.Token("border", "default")))
     frame.talentRow = frame.rows[1]
     frame.talentRow.cell:SetRound(true)
     frame.talentRow:RegisterForClicks("LeftButtonUp")
@@ -457,6 +476,8 @@ function ReadyCheckAssistant:CreateFrame()
 end
 
 function ReadyCheckAssistant:ApplySettings()
+    if SafeBooleanCall(InCombatLockdown) then self.settingsPending = true; return end
+    self.settingsPending = nil
     self.db = EnsureDB()
     if not self.db then return end
     local display = self:CreateFrame()
@@ -464,8 +485,25 @@ function ReadyCheckAssistant:ApplySettings()
     local anchorSide = db.anchorSide == "ABOVE" and "ABOVE" or "BELOW"
     local readyFrame = _G.ReadyCheckFrame
 
-    display:SetSize(PANEL_WIDTH, PANEL_HEIGHT) -- fixed height (no optional buttons)
     display:SetScale(Clamp(db.scale, 0.6, 1.8, 1))
+    local width = readyFrame and SafeNumber(readyFrame:GetWidth())
+    width = width and width >= 200 and width <= 600 and width or PANEL_WIDTH
+    -- [STYLE] Equal visible widths even when the two frames use different scales.
+    local readyScale = readyFrame and readyFrame.GetEffectiveScale and SafeNumber(readyFrame:GetEffectiveScale())
+    local panelScale = display.GetEffectiveScale and SafeNumber(display:GetEffectiveScale())
+    if readyScale and readyScale > 0 and panelScale and panelScale > 0 then width = width * readyScale / panelScale end
+    local optional = db.showOptional ~= false
+    display:SetSize(width, optional and PANEL_HEIGHT or ROWS_TOP + 5 * ROW_HEIGHT + 10)
+    for _, row in ipairs(display.rows) do
+        row:SetWidth(width - 24)
+        row:SetShown(not row.optional or optional)
+    end
+    display.optionalHeader:SetWidth(width - 24)
+    display.optionalHeader:SetShown(optional)
+    if not optional and GameTooltip and GameTooltip.GetOwner then
+        local owner = GameTooltip:GetOwner()
+        if owner == display.rows[6] or owner == display.rows[7] then GameTooltip:Hide() end
+    end
     display:ClearAllPoints()
     if readyFrame then
         if anchorSide == "ABOVE" then
@@ -522,6 +560,12 @@ function ReadyCheckAssistant:Refresh()
     else
         frame.summaryPill:SetPill(L["RCA_NO_ISSUES"], "ok")
     end
+    -- [STYLE] Keep the pills separate when matching a scaled or skinned popup.
+    local available = frame:GetWidth() - 24
+    if snapshot.issueCount > 0 and frame.summaryPill:GetWidth() + frame.contextPill:GetWidth() + 8 > available then
+        frame.summaryPill:SetPill(string.format(L["RCA_SUMMARY_SHORT_FORMAT"], snapshot.issueCount), "warn")
+    end
+    frame.contextPill:SetShown(frame.summaryPill:GetWidth() + frame.contextPill:GetWidth() + 8 <= available)
 
     -- Talents: "특성 · <기준 이름>" + 일치 / 불일치 / 미설정
     local talentStatus, talentState
@@ -543,11 +587,11 @@ function ReadyCheckAssistant:Refresh()
         L["RCA_EXPECTED"] .. ": " .. (snapshot.expectedLoadout ~= "" and snapshot.expectedLoadout or L["RCA_NOT_CONFIGURED"]),
     }
 
-    -- Flask, food, rune, weapon
-    for index, definition in ipairs(CONSUMABLES) do
+    for _, definition in ipairs(CONSUMABLES) do
         local item = snapshot.consumables[definition.key]
         local text, state = ConsumableStatus(item)
-        local row = frame.rows[index + 1]
+        if definition.optional and state ~= "ok" then state = nil end
+        local row = frame.rows[definition.row]
         SetRow(row, (item and item.icon) or definition.icon, L[definition.rowLabel or definition.label], text, state)
         row.tooltipTitle = L[definition.rowLabel or definition.label]
         row.tooltipLines = { text }
@@ -556,7 +600,7 @@ function ReadyCheckAssistant:Refresh()
     -- Durability: "최저 91%"
     local durability = snapshot.durability
     local needsRepair = #durability.lowSlots > 0
-    local durabilityRow = frame.rows[6]
+    local durabilityRow = frame.rows[5]
     SetRow(durabilityRow, DURABILITY_ICON, L["RAIDPREP_COLUMN_DURABILITY"],
         string.format("%s %d%%", L["RCA_LOWEST"], math.floor(durability.lowest + 0.5)),
         needsRepair and "bad" or "ok")
@@ -616,7 +660,7 @@ function ReadyCheckAssistant:BuildReport(snapshot)
     end
     for _, definition in ipairs(CONSUMABLES) do
         local item = snapshot.consumables and snapshot.consumables[definition.key]
-        if not item or item.value ~= true then
+        if not definition.optional and (not item or item.value ~= true) then
             message = message .. " / " .. L[definition.label] .. ": " .. ConsumableStatus(item)
         end
     end
@@ -744,8 +788,10 @@ eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:SetScript("OnEvent", function(_, event, unit)
+    if event == "PLAYER_REGEN_ENABLED" and ReadyCheckAssistant.settingsPending then ReadyCheckAssistant:ApplySettings() end
     if not active then return end
     if (event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED") and unit ~= "player" then return end
     if event == "READY_CHECK" then
