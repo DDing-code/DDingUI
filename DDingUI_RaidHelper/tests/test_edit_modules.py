@@ -9,6 +9,43 @@ from lupa.lua51 import LuaRuntime
 
 from test_raidhelper_edit_mode import ADDON_ROOT, EXTRA, MOCK, STYLE_FILES
 
+# WoW coordinates use the region's effective scale; clamping constrains its whole rect.
+GEOMETRY_EXTRA = r'''
+function methods:GetEffectiveScale()
+    return self:GetScale() * (self.parent and self.parent:GetEffectiveScale() or 1)
+end
+function methods:SetClampedToScreen(value) self.clamped = value end
+local factors = {TOPLEFT={0,1},TOP={.5,1},TOPRIGHT={1,1},LEFT={0,.5},CENTER={.5,.5},
+    RIGHT={1,.5},BOTTOMLEFT={0,0},BOTTOM={.5,0},BOTTOMRIGHT={1,0}}
+function methods:Rect()
+    if self == UIParent then return 0, 0, self.width or 1280, self.height or 900 end
+    local scale = self:GetEffectiveScale()
+    local width = self.width or (self.text and Measure(self.text, self.fontSize or 12)) or 0
+    local height = self.height or (self.text and (self.fontSize or 12)*1.2) or 0
+    local ax, ay = {}, {}
+    for point, a in pairs(self.points) do
+        local rx, ry, rw, rh = a[1]:Rect()
+        local ratio, f, own = a[1]:GetEffectiveScale()/scale, factors[a[2]], factors[point]
+        ax[#ax+1] = {own[1], (rx+rw*f[1])*ratio+a[3]}
+        ay[#ay+1] = {own[2], (ry+rh*f[2])*ratio+a[4]}
+    end
+    local function Solve(points, size)
+        for i=1,#points do for j=i+1,#points do if points[i][1] ~= points[j][1] then
+            size = (points[i][2]-points[j][2])/(points[i][1]-points[j][1])
+            return points[i][2]-points[i][1]*size, size
+        end end end
+        return #points > 0 and points[1][2]-points[1][1]*size or 0, size
+    end
+    local x, y; x, width = Solve(ax, width); y, height = Solve(ay, height)
+    if self.clamped then
+        local ratio = UIParent:GetEffectiveScale()/scale
+        x = math.max(0, math.min(x, UIParent:GetWidth()*ratio-width))
+        y = math.max(0, math.min(y, UIParent:GetHeight()*ratio-height))
+    end
+    return x, y, width, height
+end
+'''
+
 SCENARIO = r'''
 local ns = ...
 local function Noop() end
@@ -128,11 +165,13 @@ assert(alert.points.TOPLEFT[1] == frame)
 '''
 
 
-def run(extra=""):
+def run(extra="", scenario=SCENARIO, setup=""):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.globals().Measure = lambda text, size: len(re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", text)) * size * 0.65
     lua.execute(MOCK.read_text(encoding="utf-8"))
     lua.execute(EXTRA)
+    if setup:
+        lua.execute(setup)
     for relative in STYLE_FILES:
         source = (ADDON_ROOT / relative.replace("\\", "/")).read_text(encoding="utf-8-sig")
         lua.execute("local source = ...; assert(loadstring(source))('DDingUI_RaidHelper')", source)
@@ -140,13 +179,65 @@ def run(extra=""):
     for relative in ("UI/Timeline.lua", "Core.lua"):
         source = (ADDON_ROOT / relative).read_text(encoding="utf-8-sig")
         lua.execute("local source, ns = ...; assert(loadstring(source))('DDingUI_RaidHelper', ns)", source, ns)
-    lua.execute(SCENARIO, ns)
+    lua.execute(scenario, ns)
     if extra:
         lua.execute(extra, ns)
 
 
 def test_timeline_and_alert_are_separate_edit_modules():
     run()
+
+
+def test_first_edit_keeps_reminder_position_at_screen_edges():
+    for scale in (0.6, 1, 1.35, 1.6):
+        run("local scale = " + str(scale) + r'''
+local ns = ...
+local UI = ns.TimelineUI
+UIParent:SetScale(0.7)
+ns.db.timelineScale = scale
+UI:ApplyDisplaySettings()
+-- No mover has been created yet on a fresh login.
+assert(not UI.upcomingPanel.mover)
+ns.db.alertPosition = {point="TOPLEFT", relativePoint="BOTTOMLEFT", x=90, y=45}
+UI:ApplyPosition()
+local bx, by = UI:GetFrameRect("alert")
+assert(UI:SetEditMode(true))
+local ax, ay = UI:GetFrameRect("alert")
+assert(math.abs(ax-bx) < 0.01 and math.abs(ay-by) < 0.01,
+    string.format("edit entry moved reminder at scale %.2f: (%.1f, %.1f) -> (%.1f, %.1f)",
+        scale, bx, by, ax, ay))
+assert(ns.db.alertPosition.x == 90 and ns.db.alertPosition.y == 45, "saved anchor is preserved")
+assert(UI:SetEditMode(false))
+UI:ApplyPosition()
+ax, ay = UI:GetFrameRect("alert")
+assert(math.abs(ax-bx) < 0.01 and math.abs(ay-by) < 0.01, "reload anchor stays in place")
+''', scenario=SCENARIO.split("local UI, db =")[0], setup=GEOMETRY_EXTRA)
+
+
+def test_scaled_attached_reminder_detaches_in_place():
+    for scale in (0.6, 1, 1.35, 1.6):
+        run("local scale = " + str(scale) + r'''
+local ns = ...
+local UI = ns.TimelineUI
+UIParent:SetScale(0.7)
+ns.db.timelineScale = scale
+ns.db.position = {point="BOTTOMLEFT", relativePoint="BOTTOMLEFT", x=90, y=45}
+UI:ApplyDisplaySettings()
+UI:ApplyPosition()
+local tx, ty = UI:GetFrameRect("timeline")
+local bx, by = UI:GetFrameRect("alert")
+assert(UI:SetEditMode(true))
+local ax, ay = UI:GetFrameRect("alert")
+local tolerance = scale*0.5 + 0.01 -- integer saved offsets round by at most half a unit
+assert(math.abs(ax-bx) <= tolerance and math.abs(ay-by) <= tolerance,
+    "scaled attached reminder stays in place when detached")
+local tx2, ty2 = UI:GetFrameRect("timeline")
+assert(tx == tx2 and ty == ty2, "entering edit does not move the timeline")
+assert(UI:SetEditMode(false))
+UI:ApplyPosition()
+local rx, ry = UI:GetFrameRect("alert")
+assert(math.abs(rx-ax) < 0.01 and math.abs(ry-ay) < 0.01, "saved independent anchor is stable")
+''', scenario=SCENARIO.split("local UI, db =")[0], setup=GEOMETRY_EXTRA)
 
 
 def test_edit_labels_do_not_cover_the_other_module_or_alert_rows():

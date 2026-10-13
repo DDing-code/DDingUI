@@ -823,6 +823,8 @@ function TimelineUI:CreateFrame()
     -- [STYLE] The alert is its own edit module but stays a child of the timeline frame, so it
     -- shares the timeline's fade in/out and "전체 크기" scale. ApplyAlertPosition anchors it.
     frame.upcomingPanel = CreateFrame("Frame", "DDingUI_RaidHelperAlert", frame)
+    -- [REFACTOR] Use the same screen bounds before and after the first edit session.
+    frame.upcomingPanel:SetClampedToScreen(true)
     frame.upcomingPanel:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -ALERT_ATTACH_GAP)
     frame.upcomingPanel:SetSize(UPCOMING_PANEL_MAX_WIDTH, 94) -- ApplyAlertStyle sets the real size
     frame.upcomingPanel:Hide()
@@ -1451,7 +1453,6 @@ function TimelineUI:EnsureAlertMover()
     panel.mover:Hide()
 
     panel:SetMovable(true)
-    panel:SetClampedToScreen(true)
     panel:RegisterForDrag("LeftButton")
     panel:SetScript("OnMouseDown", function()
         if TimelineUI.editSession then TimelineUI:SelectEditModule("alert") end
