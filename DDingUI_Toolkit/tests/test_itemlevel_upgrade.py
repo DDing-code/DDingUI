@@ -73,12 +73,14 @@ def test_upgrade_slot_sides_and_gems_for_self_and_inspect():
                 local ilvl,track,gem=data[1],data[2],data[4]
                 assert(track.text=="4/8" and track.shown)
                 assert(track.fontSize==11 and track.fontFlags=="OUTLINE")
-                assert(track.textColor[1]==ITEM_QUALITY_COLORS[4].color.r)
+                for c=1,3 do assert(track.textColor[c]==ilvl.textColor[c]) end
                 local side=id==10 and "RIGHT" or "LEFT"
-                assert(track.points[side][1]==ilvl and track.justify==side)
                 if id==16 or id==17 then
+                    assert(track.points.BOTTOM[1]==ilvl and track.points.BOTTOM[2]=="TOP")
+                    assert(track.points.BOTTOM[3]==0 and track.points.BOTTOM[4]==2 and track.justify=="CENTER")
                     assert(gem.points.TOP[1]==ilvl, "weapons keep sockets below ilvl")
                 else
+                    assert(track.points[side][1]==ilvl and track.justify==side)
                     assert(gem.points[side][1]==track, "socket must follow upgrade text")
                 end
                 module.db.showUpgradeTrack=false; update(slot,unit)
@@ -86,7 +88,8 @@ def test_upgrade_slot_sides_and_gems_for_self_and_inspect():
                 if id==1 or id==10 then assert(gem.points[side][1]==ilvl) end
                 module.db.showUpgradeTrack=true
                 upgrade.currentLevel=8; update(slot,unit)
-                assert(track.text=="8/8" and track.textColor[1]==ns.ReadyStatus.Token("text","dim")[1])
+                assert(track.text=="8/8")
+                for c=1,3 do assert(track.textColor[c]==ilvl.textColor[c]) end
                 upgrade.currentLevel=4
             end
         end
@@ -102,7 +105,7 @@ def test_upgrade_unknown_uncached_secret_and_hidden_slots():
             "Explorer","Adventurer","Veteran","Champion","Hero","Myth","Unknown"}) do
             upgrade={currentLevel=2,maxLevel=6,trackString=name}; updateSelf(slot)
             assert(track.text=="2/6" and track.shown)
-            if name=="Unknown" then assert(track.textColor[1]==ITEM_QUALITY_COLORS[4].color.r) end
+            for c=1,3 do assert(track.textColor[c]==data[1].textColor[c]) end
         end
         local secret={}; function issecretvalue(v) return rawequal(v,secret) end
         for _,value in ipairs({{}, {currentLevel=0,maxLevel=0}, {currentLevel=9,maxLevel=8},

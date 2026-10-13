@@ -234,11 +234,7 @@ local function HideInspectDisplay()
     if avgInspectFS then avgInspectFS:Hide() end
 end
 
--- [STYLE] Keep the upgrade level beside ilvl; sockets follow its outer edge.
-local TRACK_QUALITY = {
-    Explorer = 0, Adventurer = 1, Veteran = 2, Champion = 3, Hero = 4, Myth = 5,
-    ["탐험가"] = 0, ["모험가"] = 1, ["노련가"] = 2, ["챔피언"] = 3, ["영웅"] = 4, ["신화"] = 5,
-}
+-- [STYLE] Match ilvl color; weapons put the upgrade level above ilvl, other slots beside it.
 local function UpdateUpgradeTrack(data, link, id, size, flags, color)
     if ItemLevel.db.showUpgradeTrack == false or not C_Item.GetItemUpgradeInfo then return end
     local ok, info = pcall(C_Item.GetItemUpgradeInfo, link)
@@ -248,18 +244,15 @@ local function UpdateUpgradeTrack(data, link, id, size, flags, color)
     if issecretvalue and (issecretvalue(current) or issecretvalue(maximum) or issecretvalue(track)) then return end
     if type(current) ~= "number" or type(maximum) ~= "number"
         or current < 1 or maximum < current then return end
-    local quality = TRACK_QUALITY[track or ""]
-    color = quality and ITEM_QUALITY_COLORS[quality].color or color
     local label = data.trackFS
     label:SetFont(STANDARD_TEXT_FONT, math.max(8, size - 2), flags)
     label:SetText(current .. "/" .. maximum)
-    if current == maximum then
-        label:SetTextColor(ns.ReadyStatus.Unpack(ns.ReadyStatus.Token("text", "dim")))
-    else
-        label:SetTextColor(color.r, color.g, color.b)
-    end
+    label:SetTextColor(color.r, color.g, color.b)
     label:ClearAllPoints()
-    if IsRight(id) and id ~= SlotIDs.MainHandSlot then
+    if id == SlotIDs.MainHandSlot or id == SlotIDs.SecondaryHandSlot then
+        label:SetPoint("BOTTOM", data.ilvlFS, "TOP", 0, 2)
+        label:SetJustifyH("CENTER")
+    elseif IsRight(id) then
         label:SetPoint("RIGHT", data.ilvlFS, "LEFT", -3, 0)
         label:SetJustifyH("RIGHT")
     else
