@@ -168,6 +168,7 @@ def test_ready_check_compact_checklist_layout():
             assert(display.rows[5].label.text == L.RAIDPREP_COLUMN_DURABILITY)
             assert(display.rows[6].label.text == L.RCA_ROW_RUNE)
             assert(display.rows[7].label.text == L.RCA_ROW_VANTUS)
+            assert(display.optionalHeader.label == nil)
             -- loadout "Dungeon" vs expected "Raid", durability 18% below 25%
             assert(module.snapshot.issueCount == 2)
             assert(display.summaryPill.text.text == string.format(L.RCA_SUMMARY_ISSUES_FORMAT, 2))
@@ -367,6 +368,10 @@ def test_optional_rows_do_not_count_and_follow_popup_width():
             durability={lowest=96,average=98,threshold=25,lowSlots={}}
             local buffs={flask={value=true},food={value=true},weapon={value=true},rune={},vantus={}}
             function module:GetConsumables() return buffs end
+            GameTooltip={}
+            function GameTooltip:SetOwner(owner) self.owner=owner; self.lines={} end
+            function GameTooltip:AddLine(text) self.lines[#self.lines+1]=text end
+            function GameTooltip:Show() self.shown=true end
             for _, value in ipairs({false, "LOW", true}) do
                 buffs.rune={value=value,remaining=value=="LOW" and 32 or nil}
                 buffs.vantus={value=value}
@@ -380,6 +385,9 @@ def test_optional_rows_do_not_count_and_follow_popup_width():
                         assert(row.status.textColor[1]==ns.ReadyStatus.Token("text","dim")[1])
                         assert(not row.cell.wellTint.shown)
                     end
+                    row.scripts.OnEnter(row)
+                    assert(GameTooltip.shown and #GameTooltip.lines==2)
+                    assert(GameTooltip.lines[1]==row.label.text and GameTooltip.lines[2]==row.status.text)
                 end
                 local report=module:BuildReport(module.snapshot)
                 assert(not report:find(ns.L.RAIDPREP_COLUMN_RUNE,1,true))

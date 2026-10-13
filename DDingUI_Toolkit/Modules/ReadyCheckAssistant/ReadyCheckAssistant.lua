@@ -371,9 +371,6 @@ local function ShowRowTooltip(row)
     if row.clickHint then
         GameTooltip:AddLine(row.clickHint, styles.RGB(styles.Color(nil)))
     end
-    if row.optional then
-        GameTooltip:AddLine(L["RAIDPREP_OPTIONAL_NOTE"], styles.RGB(styles.Token("text", "dim")))
-    end
     GameTooltip:Show()
 end
 
@@ -447,10 +444,8 @@ function ReadyCheckAssistant:CreateFrame()
     frame.optionalHeader = CreateFrame("Frame", nil, frame)
     frame.optionalHeader:SetPoint("TOPLEFT", 12, -(ROWS_TOP + 5 * ROW_HEIGHT))
     frame.optionalHeader:SetSize(PANEL_WIDTH - 24, OPTIONAL_HEIGHT)
-    frame.optionalHeader.label = AddText(frame.optionalHeader, 12, styles.Token("text", "dim"), L["RAIDPREP_OPTIONAL_LABEL"])
-    frame.optionalHeader.label:SetPoint("LEFT", 0, 0)
     local divider = frame.optionalHeader:CreateTexture(nil, "ARTWORK")
-    divider:SetPoint("LEFT", frame.optionalHeader.label, "RIGHT", 8, 0)
+    divider:SetPoint("LEFT", 0, 0) -- [STYLE] Keep only the separator between item groups.
     divider:SetPoint("RIGHT", 0, 0)
     divider:SetHeight(1)
     divider:SetColorTexture(styles.Unpack(styles.Token("border", "default")))

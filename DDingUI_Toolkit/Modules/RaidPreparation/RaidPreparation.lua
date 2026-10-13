@@ -830,9 +830,7 @@ local function ShowItemTooltip(cell)
     local entry = cell.entry
     local styles = RS()
     GameTooltip:SetOwner(cell, "ANCHOR_TOP")
-    local title = L[entry.item.label]
-    if entry.item.optional then title = title .. " · " .. L["RAIDPREP_OPTIONAL_LABEL"] end
-    GameTooltip:AddLine(title, styles.RGB(styles.Token("text", "highlight")))
+    GameTooltip:AddLine(L[entry.item.label], styles.RGB(styles.Token("text", "highlight")))
     if entry.off then
         GameTooltip:AddLine(L["RAIDPREP_ITEM_OFF"], styles.RGB(styles.Color(nil)))
     elseif entry.problems == 0 and #entry.unknown == 0 then
@@ -850,9 +848,6 @@ local function ShowItemTooltip(cell)
         for _, record in ipairs(entry.unknown) do names[#names + 1] = ShortName(record.name) end
         GameTooltip:AddLine(L["RAIDPREP_UNKNOWN_GROUP"] .. ": " .. table.concat(names, ", "),
             styles.RGB(styles.Color(nil)))
-    end
-    if entry.item.optional then
-        GameTooltip:AddLine(L["RAIDPREP_OPTIONAL_NOTE"], styles.RGB(styles.Token("text", "dim")))
     end
     GameTooltip:Show()
 end
@@ -924,7 +919,7 @@ function RaidPreparation:Refresh()
         local entry = summary[index]
         cell.entry = entry
         cell:SetState(entry.state)
-        cell:SetBadge(entry.problems, entry.state)
+        cell:SetBadge(entry.item.optional and 0 or entry.problems, entry.state) -- [STYLE] Augment/Vantus keep their status without a count.
         cell:SetAlpha(entry.off and 0.35 or 1)
     end
     frame.hint:SetText(self.testMode and L["RAIDPREP_STATUS_TEST"] or L["RAIDPREP_ICON_HINT"])
@@ -1204,7 +1199,7 @@ function RaidPreparation:CreateFrame()
     frame.headline:SetPoint("BOTTOMLEFT", frame.gauge, "TOPLEFT", 0, 3)
     frame.headline:SetPoint("RIGHT", frame.replies, "LEFT", -6, 0)
 
-    -- [STYLE] Five required icons | two optional icons with neutral badges.
+    -- [STYLE] Five required icons with counts | two optional icons without counts.
     frame.icons = {}
     local size = styles.RAID_ICON
     for index, item in ipairs(ITEMS) do
