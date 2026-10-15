@@ -1,5 +1,23 @@
 # DDingUI RaidHelper Changelog
 
+## 2.1.3
+
+2026-10-15
+
+### 한국어
+
+- WoW 12.1.5 인터페이스를 지원합니다.
+- 2.1.2의 한국어·영어·경보 카운트와 기존 일본어를 포함한 4종 선택, 타임라인 표시 요소·아이콘 크기·시간 범위 설정을 포함합니다.
+- 연속 피해의 반복 틱을 한 기믹 아이콘으로 묶어 타임라인이 같은 아이콘으로 가득 차지 않도록 했습니다. 피해 파형과 BigWigs 동기화 정보는 유지합니다.
+- 리마인더 위치를 처음 표시할 때부터 화면 경계 안에 맞춰, 편집 모드 사용 전후 위치가 달라지는 문제를 수정했습니다.
+
+### English
+
+- Added WoW 12.1.5 interface support.
+- Includes the four countdown choices (Korean, English, alarm and the existing Japanese) and timeline visibility, icon-size and time-range settings introduced in 2.1.2.
+- Collapsed repeated ticks of continuous damage into one mechanic icon while retaining the damage wave and BigWigs synchronization data.
+- Applied screen bounds to reminders from their first appearance, so entering edit mode no longer changes their positioning rules.
+
 ## 2.1.2
 
 2026-10-11

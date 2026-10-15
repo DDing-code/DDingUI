@@ -40,12 +40,12 @@ end
 
 local function GetAddonVersion()
     if C_AddOns and C_AddOns.GetAddOnMetadata then
-        return C_AddOns.GetAddOnMetadata(ns.addonName, "Version") or "2.1.2"
+        return C_AddOns.GetAddOnMetadata(ns.addonName, "Version") or "2.1.3"
     end
     if type(GetAddOnMetadata) == "function" then
-        return GetAddOnMetadata(ns.addonName, "Version") or "2.1.2"
+        return GetAddOnMetadata(ns.addonName, "Version") or "2.1.3"
     end
-    return "2.1.2"
+    return "2.1.3"
 end
 
 local function CreateText(parent, fontPath, size, color, text, width)
