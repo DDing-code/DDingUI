@@ -61,7 +61,7 @@ function DynamicLayout.Create(
             local iconData = db.iconData[groupKey]
             if iconData then
                 if iconData.type == "item" then
-                    return GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " " .. iconData.id)
+                    return C_Item.GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " " .. iconData.id)
                 elseif iconData.type == "spell" then
                     local info = C_Spell.GetSpellInfo(iconData.id)
                     return (info and info.name) or ((L["Spell"] or "Spell") .. " " .. iconData.id)
@@ -69,7 +69,7 @@ function DynamicLayout.Create(
                     return ((L["Slot"] or "Slot") .. " " .. (iconData.slotID or ""))
                 elseif iconData.type == "trinketProc" then
                     local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
-                    local itemName = iid and GetItemInfo(iid)
+                    local itemName = iid and C_Item.GetItemInfo(iid)
                     return itemName or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
                 elseif iconData.type == "totem" then
                     return ((L["Totem Slot"] or "Totem Slot") .. " " .. (iconData.totemSlot or ""))

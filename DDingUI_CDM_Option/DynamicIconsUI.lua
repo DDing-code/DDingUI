@@ -292,7 +292,7 @@ local function MatchesSearch(iconKey, iconData)
     local query = string.lower(uiState.searchText)
     local name = ""
     if iconData.type == "item" then
-        name = GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " " .. iconData.id)
+        name = C_Item.GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " " .. iconData.id)
     elseif iconData.type == "spell" then
         local info = C_Spell.GetSpellInfo(iconData.id)
         name = (info and info.name) or ((L["Spell"] or "Spell") .. " " .. iconData.id)
@@ -300,7 +300,7 @@ local function MatchesSearch(iconKey, iconData)
         name = ((L["Slot"] or "Slot") .. " " .. (iconData.slotID or ""))
     elseif iconData.type == "trinketProc" then
         local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
-        name = (iid and GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
+        name = (iid and C_Item.GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
     end
     name = string.lower(tostring(name))
     local idStr = tostring(iconData.id or iconData.slotID or "")
@@ -415,14 +415,14 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
     node.iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     if iconData.type == "item" then
-        local _, _, _, _, _, _, _, _, _, tex = GetItemInfo(iconData.id)
+        local _, _, _, _, _, _, _, _, _, tex = C_Item.GetItemInfo(iconData.id)
         node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iconData.id) or FALLBACK_ITEM_ICON))
     elseif iconData.type == "spell" or iconData.type == "aura" then
         local stored = GetStoredIconTexture(iconData)
         node.iconTex:SetTexture(NonQuestionTexture(ResolveSpellTexture(iconData.id, stored), stored or FALLBACK_SPELL_ICON))
     elseif iconData.type == "slot" or iconData.type == "trinketProc" then
         local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID)
-        local _, _, _, _, _, _, _, _, _, tex = iid and GetItemInfo(iid)
+        local _, _, _, _, _, _, _, _, _, tex = iid and C_Item.GetItemInfo(iid)
         node.iconTex:SetTexture(NonQuestionTexture(tex, ResolveItemTexture(iid, iconData.slotID) or FALLBACK_SLOT_ICON))
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
@@ -453,7 +453,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
 
     local displayName = ""
     if iconData.type == "item" then
-        displayName = GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " ID: " .. iconData.id)
+        displayName = C_Item.GetItemInfo(iconData.id) or ((L["Item"] or "Item") .. " ID: " .. iconData.id)
     elseif iconData.type == "spell" or iconData.type == "aura" then
         local info = C_Spell.GetSpellInfo(iconData.id)
         displayName = (info and info.name) or ((L["Spell"] or "Spell") .. " ID: " .. iconData.id)
@@ -461,7 +461,7 @@ local function CreateIconNode(parent, iconKey, iconData, groupKey)
         displayName = (L["Slot"] or "Slot") .. " " .. tostring(iconData.slotID or "")
     elseif iconData.type == "trinketProc" then
         local iid = CustomIcons.GetEquippedSlotItemID(nil, iconData.slotID or 13)
-        displayName = (iid and GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
+        displayName = (iid and C_Item.GetItemInfo(iid)) or ("Trinket " .. (iconData.slotID == 14 and "2" or "1"))
     elseif iconData.type == "racial" then
         local racialID = GetPlayerRacialSpellID()
         if racialID then

@@ -2421,10 +2421,7 @@ local function BuildAssignedSpellsArgs(groupName)
                             -- GetItemInfoInstant는 바로 아이콘을 반환 (GetItemInfo는 캐시 대기 필요)
                             local itemIDNum, itemType, itemSubType, itemEquipLoc, icon, itemClassID, itemSubClassID = C_Item.GetItemInfoInstant(itemID)
                             -- 이름은 캐시가 안 되어있으면 nil일 수 있으므로 id 보존
-                            local name = nil
-                            if GetItemInfo then
-                                name = GetItemInfo(itemID)
-                            end
+                            local name = C_Item.GetItemInfo(itemID)
 
                             displayName = name or ((L["Item"] or "Item") .. " " .. itemID)
                             iconTex = icon or iconTex
@@ -2433,7 +2430,7 @@ local function BuildAssignedSpellsArgs(groupName)
                             local itemID = GetInventoryItemID("player", slotID)
                             if itemID then
                                 local itemIDNum, itemType, itemSubType, itemEquipLoc, icon = C_Item.GetItemInfoInstant(itemID)
-                                local name = GetItemInfo(itemID)
+                                local name = C_Item.GetItemInfo(itemID)
                                 displayName = name or ("장신구 슬롯 " .. slotID)
                                 iconTex = GetInventoryItemTexture("player", slotID)
                                     or icon
@@ -3369,8 +3366,8 @@ local function BuildGroupAddPopupItems(groupName, unassignedRows, addMode)
                 return
             end
             local itemName
-            if itemID and GetItemInfo then
-                local okName, name = pcall(GetItemInfo, itemID)
+            if itemID then
+                local okName, name = pcall(C_Item.GetItemInfo, itemID)
                 itemName = SafeOptionValue(okName and name)
             end
             items[#items + 1] = {

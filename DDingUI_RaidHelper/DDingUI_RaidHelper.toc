@@ -1,4 +1,4 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 120105
 ## Title: |cffffffffDDing|r|cffffa300UI|r |cffd65cffRaidHelper|r
 ## Notes: Raid utilities for DDingUI.
 ## Notes-koKR: DDingUI 공격대 보조 도구입니다.

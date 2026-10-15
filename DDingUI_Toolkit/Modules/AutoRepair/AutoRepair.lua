@@ -79,7 +79,7 @@ function AutoRepair:DoRepair()
 
     -- 채팅 출력
     if self.db.chatOutput then
-        local costText = GetCoinTextureString(cost)
+        local costText = C_CurrencyInfo.GetCoinTextureString(cost)
         local source
         if usedGuildBank then
             source = L["AUTOREPAIR_GUILD_BANK"]

@@ -56,25 +56,10 @@ local function EnsureIconType(iconData)
         iconData.type = "slot"
     elseif iconData.id then
         -- Try to detect if it's an item or spell
-        -- C_Item.GetItemInfo is more reliable for checking if ID is an item
-        local itemInfo = C_Item.GetItemInfo(iconData.id)
-        if itemInfo then
+        if C_Item.GetItemInfo(iconData.id) then
             iconData.type = "item"
         else
-            -- Also try legacy GetItemInfo as fallback
-            local itemName = GetItemInfo(iconData.id)
-            if itemName then
-                iconData.type = "item"
-            else
-                -- Check if it's a valid spell
-                local spellInfo = C_Spell.GetSpellInfo(iconData.id)
-                if spellInfo then
-                    iconData.type = "spell"
-                else
-                    -- Default to spell if we can't determine
-                    iconData.type = "spell"
-                end
-            end
+            iconData.type = "spell"
         end
     end
 end

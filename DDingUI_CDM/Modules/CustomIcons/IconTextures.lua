@@ -61,7 +61,7 @@ local function ResolveItemTexture(itemID, slotID)
         end
     end
     if not tex and itemID then
-        local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
+        local _, _, _, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemID)
         tex = itemTexture
         if IsQuestionTexture(tex) then
             tex = nil

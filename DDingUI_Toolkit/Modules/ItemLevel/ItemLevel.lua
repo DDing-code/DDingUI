@@ -307,9 +307,9 @@ local function UpdateSelfSlot(button)
         local ilvl = 0
         local itemLocation = ItemLocation:CreateFromEquipmentSlot(id)
         if itemLocation and itemLocation:IsValid() and C_Item.DoesItemExist(itemLocation) then
-            ilvl = C_Item.GetCurrentItemLevel(itemLocation) or GetDetailedItemLevelInfo(link) or 0
+            ilvl = C_Item.GetCurrentItemLevel(itemLocation) or C_Item.GetDetailedItemLevelInfo(link) or 0
         else
-            ilvl = GetDetailedItemLevelInfo(link) or 0
+            ilvl = C_Item.GetDetailedItemLevelInfo(link) or 0
         end
 
         local _, _, quality = C_Item.GetItemInfo(link) -- [12.0.1] GetItemInfo → C_Item.GetItemInfo
@@ -498,7 +498,7 @@ local function UpdateInspectSlot(button, unit)
         end
         -- 폴백
         if ilvl == 0 then
-            ilvl = GetDetailedItemLevelInfo(link) or 0
+            ilvl = C_Item.GetDetailedItemLevelInfo(link) or 0
         end
 
         local _, _, quality = C_Item.GetItemInfo(link) -- [12.0.1] GetItemInfo → C_Item.GetItemInfo

@@ -24,11 +24,11 @@ def item_runtime():
         function M:NumLines() return 0 end
         function M:SetHyperlink() end
         C_Item={GetItemInfo=function() return "Item",nil,4 end,
+            GetDetailedItemLevelInfo=function() return 320 end,
             GetItemUpgradeInfo=function() calls=calls+1; return upgrade end,
             GetItemNumSockets=function() return 1 end, GetItemIconByID=function() return 123 end}
         ItemLocation={CreateFromEquipmentSlot=function() return {IsValid=function() return false end} end}
         LinkUtil={ExtractLink=function(link) return "item",link:sub(6) end}
-        function GetDetailedItemLevelInfo() return 320 end
         ITEM_QUALITY_COLORS={}
         for q=0,5 do ITEM_QUALITY_COLORS[q]={color={r=q/10,g=.2,b=.3}} end
         upgrade={currentLevel=4,maxLevel=8,trackString="영웅"}; calls=0

@@ -1,4 +1,4 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 120105
 ## Title: DDingUI CDM Options - Legacy Folder
 ## Notes: Compatibility marker for installations upgraded from DDingUI_Options.
 ## Author: DDing

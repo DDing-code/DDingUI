@@ -394,7 +394,7 @@ function FrameLifecycle.Create(
 
         -- [FIX] CDM 방식: 프레임은 항상 생성, 텍스처만 나중에 업데이트
         -- GetItemInfo가 nil이어도 프레임은 만들어야 GroupSystem이 추적 가능
-        local itemName = GetItemInfo(itemID)
+        local itemName = C_Item.GetItemInfo(itemID)
         if not itemName and C_Item and C_Item.RequestLoadItemDataByID then
             C_Item.RequestLoadItemDataByID(itemID)
         end
@@ -454,7 +454,7 @@ function FrameLifecycle.Create(
             -- GetItemInfo보다 GetInventoryItemTexture가 더 신뢰할 수 있음 (캐시 불필요)
             tex = GetInventoryItemTexture("player", slotID)
             if not tex then
-                local _, _, _, _, _, _, _, _, _, itemTexture = GetItemInfo(itemID)
+                local _, _, _, _, _, _, _, _, _, itemTexture = C_Item.GetItemInfo(itemID)
                 tex = itemTexture
             end
             if not tex and C_Item and C_Item.RequestLoadItemDataByID then

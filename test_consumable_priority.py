@@ -478,7 +478,10 @@ def main():
             data.settings=data.settings or {};data.settings.loadConditions=data.settings.loadConditions or {}
         end
         local pool={iconFramePool={}}
-        local _,loadable,spawn,release=addon.CustomIconFrameLifecycle.Create(pool,ci,nil,nil,ensure)
+        local _,loadable,spawn,release,create=addon.CustomIconFrameLifecycle.Create(
+            pool,ci,nil,nil,ensure,nil,nil,nil,nil,nil,nil,nil,nil,
+            function(id)return id end,nil,
+            function(frame,texture)frame.icon:SetTexture(texture)end)
         ci.StopTrackedTrinketEffectGlow=function()end
         ci.HideManagedIconBorderLayers=function()end
         release("quality",qualityTestFrame)
@@ -486,6 +489,12 @@ def main():
         assert(pool.iconFramePool[1]==qualityTestFrame and not holder.ProfessionQualityOverlay:IsShown())
         UpdateQualityVisibility(holder)
         assert(not holder.ProfessionQualityOverlay:IsShown(), "native callback must not revive a pooled badge")
+        GetItemInfo=nil
+        C_Item.GetItemInfo=function()return nil end
+        requests[271884]=nil
+        local itemFrame=create("health",{type="item",id=271884},UIParent)
+        assert(itemFrame==qualityTestFrame and itemFrame._itemID==271884 and requests[271884],
+            "uncached item must create an icon and request data without the removed global API")
         ci.IsIconLoadable=function(_,data)return loadable(data)end
         TestShouldSpawn=spawn
         local db=addon.db.profile.dynamicIcons
