@@ -2,6 +2,19 @@
 
 ---
 
+## v2.2.3.1
+
+_Release date: 2026-10-15_
+_Scope: Changes after the v2.2.3 release commit 8c77989._
+
+### English Patch Notes
+
+- **Alert Sounds:** Fixed repeated LibSharedMedia errors from unavailable built-in sound paths. CDM now offers only sounds found in the current game client; the no-sound option remains available.
+
+### Korean Patch Notes
+
+- **알림음:** 게임에 없는 내장 효과음 경로 때문에 반복되던 LibSharedMedia 오류를 수정했습니다. 현재 게임에서 확인되는 소리만 선택 목록에 표시하고 ‘소리 없음’은 유지합니다.
+
 ## v2.2.3
 
 _Release date: 2026-10-15_
