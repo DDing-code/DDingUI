@@ -1343,6 +1343,7 @@ L["VCH_BIS_JOURNAL_ERROR"] = "모험 안내서 전리품을 불러올 수 없습
 L["VCH_BIS_CLOSE_JOURNAL"] = "모험 안내서를 닫고 획득처를 다시 선택하세요."
 L["VCH_UNKNOWN_SPEC"] = "알 수 없는 전문화"
 L["VCH_UNKNOWN_SOURCE"] = "알 수 없는 획득처"
+L["VCH_SOURCE_KITHIX"] = "키식스"
 L["VCH_UNKNOWN_INSTANCE"] = "현재 인스턴스"
 L["VCH_SOURCE_FORMAT"] = "획득처: %s"
 L["VCH_SPEC_FORMAT"] = "전리품 전문화: %s"

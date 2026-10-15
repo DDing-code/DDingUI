@@ -1332,6 +1332,7 @@ L["VCH_BIS_JOURNAL_ERROR"] = "The Encounter Journal loot table could not be load
 L["VCH_BIS_CLOSE_JOURNAL"] = "Close the Encounter Journal and select the source again."
 L["VCH_UNKNOWN_SPEC"] = "Unknown specialization"
 L["VCH_UNKNOWN_SOURCE"] = "Unknown source"
+L["VCH_SOURCE_KITHIX"] = "Kith'ix"
 L["VCH_UNKNOWN_INSTANCE"] = "Current instance"
 L["VCH_SOURCE_FORMAT"] = "Source: %s"
 L["VCH_SPEC_FORMAT"] = "Loot specialization: %s"

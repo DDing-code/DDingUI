@@ -52,7 +52,7 @@ local SOURCE_BY_ITEM = {
     [278289] = { kind = "raid", encounterID = 2887, fallback = "Twin Fangs" },
     [278290] = { kind = "raid", encounterID = 2883, fallback = "Coiled Altar" },
     [278284] = { kind = "raid", encounterID = 2895, fallback = "Ula'tek" },
-    [286019] = { kind = "raid", encounterID = 3513, fallback = "Kith'ix" },
+    [286019] = { kind = "raid", encounterID = 3513, journalInstanceID = 1324, fallback = "Kith'ix", fallbackKey = "VCH_SOURCE_KITHIX" },
 }
 
 local SOURCE_ORDER = {
@@ -275,7 +275,7 @@ local function GetSourceName(sourceItemID)
             name = ok and SafeString(name) or nil
             if name and name ~= "" then return name, source.kind end
         end
-        return source.fallback, source.kind
+        return source.fallbackKey and T(source.fallbackKey, source.fallback) or source.fallback, source.kind
     end
 
     local name = GetItemDisplay(sourceItemID)
@@ -463,7 +463,7 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     end
 
     local journalInstanceID = source.journalInstanceID
-    if source.kind == "raid" and EJ_GetEncounterInfo then
+    if source.kind == "raid" and not journalInstanceID and EJ_GetEncounterInfo then
         local infoOK, _, _, _, _, _, result = pcall(EJ_GetEncounterInfo, source.encounterID)
         journalInstanceID = infoOK and SafeNumber(result) or nil
     end

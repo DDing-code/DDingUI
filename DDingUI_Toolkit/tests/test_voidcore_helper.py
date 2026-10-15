@@ -28,7 +28,9 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'tostring(instanceID) .. ":" .. tostring(difficultyID)' not in module
     assert 'function VoidcoreHelper:OpenBISSettings()' in module
     assert 'local SOURCE_ORDER = {' in module
-    assert '[286019] = { kind = "raid", encounterID = 3513, fallback = "Kith\'ix" }' in module
+    assert '[286019] = { kind = "raid", encounterID = 3513, journalInstanceID = 1324' in module
+    assert 'L["VCH_SOURCE_KITHIX"] = "키식스"' in (ROOT / "Locales/koKR.lua").read_text(encoding="utf-8-sig")
+    assert 'L["VCH_SOURCE_KITHIX"] = "Kith\'ix"' in (ROOT / "Locales/enUS.lua").read_text(encoding="utf-8-sig")
     assert '286019' in module.split('raid = {', 1)[1].split('}', 1)[0]
     assert 'for index = 1, math.max(#SOURCE_ORDER.dungeon, #SOURCE_ORDER.raid) do' in module
     assert 'C_EncounterJournal.GetLootInfoByIndex(index)' in module
@@ -278,7 +280,7 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
 
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(r'''
-        ns = { DDingToolKit = { RegisterModule = function() end } }
+        ns = { DDingToolKit = { RegisterModule = function() end }, L = { VCH_SOURCE_KITHIX = "키식스" } }
         function LibStub() return {} end
         eventFrame = { events = {} }
         function eventFrame:RegisterEvent(event) self.events[event] = true end
@@ -312,7 +314,10 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         end
         function EJ_SetDifficulty(value) difficulty = value end
         function EJ_GetEncounterInfo(id)
-            if id == 3513 then return "Kith'ix", nil, id, nil, nil, 1324 end
+            if id == 3513 then
+                if currentInstance ~= 1324 then return nil end
+                return "키식스", nil, id, nil, nil, 1324
+            end
             return "Ula'tek", nil, id, nil, nil, 1322
         end
         function EJ_SelectEncounter(id) currentEncounter = id end
@@ -459,6 +464,8 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         rows, loading = extract({ sourceItemID = 278284, itemContext = 6 }, 257)
         assert(#rows == 2 and not loading, "bonus-roll analysis must use the same jewelry eligibility")
 
+        local getSourceName = localFunction(mod.TryAutoDecline, "GetSourceName")
+        assert(getSourceName(286019) == "키식스", "show the Korean fallback before journal metadata loads")
         rows, err, loading = mod:GetSourceLoot(286019, 257)
         assert(not err and not loading and #rows == 2, "Kith'ix must use its own raid journal encounter")
         checkRestored()
