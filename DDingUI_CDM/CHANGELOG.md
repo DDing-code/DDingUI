@@ -2,6 +2,20 @@
 
 ---
 
+## v2.2.3
+
+_Release date: 2026-10-15_
+
+### English Patch Notes
+
+- **WoW 12.1.5:** Added the new game interface to the CDM, options and legacy bridge folders.
+- **Custom Item Icons:** Updated item-name and texture lookups for the 12.1.5 API. This fixes the error while creating custom item icons and keeps item search, group labels and icon previews working.
+
+### Korean Patch Notes
+
+- **WoW 12.1.5:** CDM 본체·옵션·기존 데이터 연결 폴더가 새 게임 버전을 지원하도록 갱신했습니다.
+- **사용자 지정 아이템 아이콘:** 12.1.5에서 바뀐 아이템 이름·텍스처 조회 방식을 적용했습니다. 아이템 아이콘 생성 중 발생하던 오류를 수정하고 아이템 검색·그룹 이름·아이콘 미리보기를 유지합니다.
+
 ## v2.2.2
 
 _Release date: 2026-10-11_
