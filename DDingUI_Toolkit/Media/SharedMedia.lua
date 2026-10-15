@@ -14,27 +14,32 @@ if LSM then
     LSM:Register("font", "DDing: 2002 Bold", [[Fonts\2002B.TTF]])
     LSM:Register("font", "DDing: Arial Narrow", [[Fonts\ARIALN.TTF]])
 
-    -- [12.0.1] WoW 내장 사운드 등록 (CDM 패턴)
-    LSM:Register("sound", "None", [[]])
-    LSM:Register("sound", "Alarm Clock Warning 1", [[Sound\Interface\AlarmClockWarning1.ogg]])
-    LSM:Register("sound", "Alarm Clock Warning 2", [[Sound\Interface\AlarmClockWarning2.ogg]])
-    LSM:Register("sound", "Alarm Clock Warning 3", [[Sound\Interface\AlarmClockWarning3.ogg]])
-    LSM:Register("sound", "Bell Low Pitch", [[Sound\Interface\Bell_LowPitch.ogg]])
-    LSM:Register("sound", "Bell 01", [[Sound\Interface\Bell_01.ogg]])
-    LSM:Register("sound", "Level Up", [[Sound\Interface\LevelUp.ogg]])
-    LSM:Register("sound", "Level Up 2", [[Sound\Interface\LevelUp2.ogg]])
-    LSM:Register("sound", "Quest Complete", [[Sound\Interface\iQuestComplete.ogg]])
-    LSM:Register("sound", "Raid Warning", [[Sound\Interface\RaidWarning.ogg]])
-    LSM:Register("sound", "Ready Check", [[Sound\Interface\ReadyCheck.ogg]])
-    LSM:Register("sound", "PvP Flag Taken", [[Sound\Spells\PVPFlagTaken.ogg]])
-    LSM:Register("sound", "PvP Through Queue", [[Sound\Interface\PVPThroughQueue.ogg]])
-    LSM:Register("sound", "Map Ping", [[Sound\Interface\MapPing.ogg]])
-    LSM:Register("sound", "Tell Message", [[Sound\Interface\iTellMessage.ogg]])
-    LSM:Register("sound", "Auction Open", [[Sound\Interface\AuctionWindowOpen.ogg]])
-    LSM:Register("sound", "Auction Close", [[Sound\Interface\AuctionWindowClose.ogg]])
-    LSM:Register("sound", "Countdown Go", [[Sound\Interface\UI_BattlegroundCountdown_Go.ogg]])
-    LSM:Register("sound", "Countdown Timer", [[Sound\Interface\UI_BattlegroundCountdown_Timer.ogg]])
-    LSM:Register("sound", "Power Aura Short", [[Sound\Spells\SimonGame_Visual_GameStart.ogg]])
+    -- Current LibSharedMedia accepts file IDs for Blizzard sounds, not Sound\ paths.
+    local function RegisterGameSound(name, path, fallbackID)
+        local fileID = C_UIFileAsset.GetFileID(path) or fallbackID
+        if fileID and C_UIFileAsset.IsKnownFile(fileID) then
+            LSM:Register("sound", name, fileID)
+        end
+    end
+    RegisterGameSound("Alarm Clock Warning 1", [[Sound\Interface\AlarmClockWarning1.ogg]])
+    RegisterGameSound("Alarm Clock Warning 2", [[Sound\Interface\AlarmClockWarning2.ogg]])
+    RegisterGameSound("Alarm Clock Warning 3", [[Sound\Interface\AlarmClockWarning3.ogg]])
+    RegisterGameSound("Bell Low Pitch", [[Sound\Interface\Bell_LowPitch.ogg]])
+    RegisterGameSound("Bell 01", [[Sound\Interface\Bell_01.ogg]])
+    RegisterGameSound("Level Up", [[Sound\Interface\LevelUp.ogg]])
+    RegisterGameSound("Level Up 2", [[Sound\Interface\LevelUp2.ogg]])
+    RegisterGameSound("Quest Complete", [[Sound\Interface\iQuestComplete.ogg]], 567439)
+    RegisterGameSound("Raid Warning", [[Sound\Interface\RaidWarning.ogg]])
+    RegisterGameSound("Ready Check", [[Sound\Interface\ReadyCheck.ogg]])
+    RegisterGameSound("PvP Flag Taken", [[Sound\Spells\PVPFlagTaken.ogg]])
+    RegisterGameSound("PvP Through Queue", [[Sound\Interface\PVPThroughQueue.ogg]])
+    RegisterGameSound("Map Ping", [[Sound\Interface\MapPing.ogg]])
+    RegisterGameSound("Tell Message", [[Sound\Interface\iTellMessage.ogg]])
+    RegisterGameSound("Auction Open", [[Sound\Interface\AuctionWindowOpen.ogg]])
+    RegisterGameSound("Auction Close", [[Sound\Interface\AuctionWindowClose.ogg]])
+    RegisterGameSound("Countdown Go", [[Sound\Interface\UI_BattlegroundCountdown_Go.ogg]])
+    RegisterGameSound("Countdown Timer", [[Sound\Interface\UI_BattlegroundCountdown_Timer.ogg]])
+    RegisterGameSound("Power Aura Short", [[Sound\Spells\SimonGame_Visual_GameStart.ogg]])
 
     -- 네임스페이스에 LSM 참조 저장
     ns.LSM = LSM
