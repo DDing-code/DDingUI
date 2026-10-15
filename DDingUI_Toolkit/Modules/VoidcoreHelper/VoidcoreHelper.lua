@@ -52,11 +52,12 @@ local SOURCE_BY_ITEM = {
     [278289] = { kind = "raid", encounterID = 2887, fallback = "Twin Fangs" },
     [278290] = { kind = "raid", encounterID = 2883, fallback = "Coiled Altar" },
     [278284] = { kind = "raid", encounterID = 2895, fallback = "Ula'tek" },
+    [286019] = { kind = "raid", encounterID = 3513, fallback = "Kith'ix" },
 }
 
 local SOURCE_ORDER = {
     dungeon = { 279618, 279623, 279620, 279619, 279625, 279621, 279624, 279622 },
-    raid = { 274708, 278285, 278283, 278286, 278287, 278288, 278289, 278290, 278284 },
+    raid = { 274708, 278285, 278283, 278286, 278287, 278288, 278289, 278290, 278284, 286019 },
 }
 
 local activeModule
@@ -687,7 +688,7 @@ function VoidcoreHelper:CreateBISFrame()
     end
 
     frame.sourceButtons = {}
-    for index = 1, 9 do
+    for index = 1, math.max(#SOURCE_ORDER.dungeon, #SOURCE_ORDER.raid) do
         local button = CreateFrame("Button", nil, frame, "BackdropTemplate")
         button:SetSize(226, 36)
         button:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -142 - ((index - 1) * 40))

@@ -28,6 +28,9 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'tostring(instanceID) .. ":" .. tostring(difficultyID)' not in module
     assert 'function VoidcoreHelper:OpenBISSettings()' in module
     assert 'local SOURCE_ORDER = {' in module
+    assert '[286019] = { kind = "raid", encounterID = 3513, fallback = "Kith\'ix" }' in module
+    assert '286019' in module.split('raid = {', 1)[1].split('}', 1)[0]
+    assert 'for index = 1, math.max(#SOURCE_ORDER.dungeon, #SOURCE_ORDER.raid) do' in module
     assert 'C_EncounterJournal.GetLootInfoByIndex(index)' in module
     assert 'EJ_SetLootFilter(classID, specID)' in module
     loot_scan = module.split('local ok = journalInstanceID and pcall(function()', 1)[1].split('local count =', 1)[0]
@@ -167,12 +170,17 @@ def test_outside_content_auto_pass_bypasses_consent_and_preserves_bis_guards():
         -- Raid/dungeon offers retain instance consent and existing BIS handling.
         db.bisBySpec["257"] = {}
         prompt(278284, 0, 6)
+        prompt(286019, 0, 6)
         prompt(279618, 0, 16, 10)
         mod.sessionGuard = true
         prompt(278284, 1, 6)
+        prompt(286019, 1, 6)
         prompt(279618, 1, 16, 10)
         db.bisBySpec["257"] = { 123 }
         prompt(278284, 0, 6) -- Keep the configured raid source while loot loads.
+        prompt(286019, 1, 6) -- The new boss is a known non-BIS source.
+        db.bisSourcesBySpec["257"]["123"] = 286019
+        prompt(286019, 0, 6) -- Keep the configured Kith'ix source while loot loads.
         prompt(279618, 1, 16, 10) -- Known non-BIS source still passes.
         db.bisSourcesBySpec["257"]["123"] = 279618
         prompt(279618, 0, 16, 10)
@@ -303,7 +311,10 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
             notify("EJ_LOOT_DATA_RECIEVED")
         end
         function EJ_SetDifficulty(value) difficulty = value end
-        function EJ_GetEncounterInfo(id) return "Ula'tek", nil, id, nil, nil, 1322 end
+        function EJ_GetEncounterInfo(id)
+            if id == 3513 then return "Kith'ix", nil, id, nil, nil, 1324 end
+            return "Ula'tek", nil, id, nil, nil, 1322
+        end
         function EJ_SelectEncounter(id) currentEncounter = id end
         function EJ_ResetLootFilter() filterClass, filterSpec = 0, 0 end
         function EJ_SetLootFilter(class, spec) filterClass, filterSpec = class, spec end
@@ -317,7 +328,9 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         function EJ_IsLootListOutOfDate() return outdated end
         expectedSpec = 256
         function EJ_GetNumLoot()
-            assert(currentInstance == 1322 and difficulty == (currentEncounter == 2895 and 16 or 23), "select instance before difficulty")
+            local raid = currentEncounter == 2895 or currentEncounter == 3513
+            assert(currentInstance == (currentEncounter == 3513 and 1324 or 1322)
+                and difficulty == (raid and 16 or 23), "select instance before difficulty")
             assert(filterClass == 5 and filterSpec == expectedSpec, "keep the selected spec filter")
             assert(slotFilter == 0, "read all equipment slots")
             return #loot
@@ -445,4 +458,8 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         end
         rows, loading = extract({ sourceItemID = 278284, itemContext = 6 }, 257)
         assert(#rows == 2 and not loading, "bonus-roll analysis must use the same jewelry eligibility")
+
+        rows, err, loading = mod:GetSourceLoot(286019, 257)
+        assert(not err and not loading and #rows == 2, "Kith'ix must use its own raid journal encounter")
+        checkRestored()
     ''')
