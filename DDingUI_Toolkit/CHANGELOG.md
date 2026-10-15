@@ -1,5 +1,24 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.3
+
+Release date: 2026-10-15
+Scope: Changes after the 2.2.2 release commit fd18a69.
+
+### 한국어
+
+- **12.1.5 지원:** 새 게임 버전을 지원하고 장비 레벨 표시와 자동 수리가 변경된 게임 API에서도 작동하도록 수정했습니다.
+- **공허핵 도우미:** 키식스 보스를 공격대 BIS 출처에 추가했습니다. 키식스 전리품 목록과 공허핵 사용 판단에 반영됩니다.
+- **아이템 레벨:** 장비의 강화 단계를 표시합니다. 글자색을 장비 품질에 맞추고 무기·보조무기 칸의 표시 위치를 정리했습니다.
+- **준비 확인:** 증강 룬과 반투스 룬을 선택 항목으로 표시합니다. 개인·공격대 창에서 상태를 확인할 수 있으며, 선택 항목은 준비 완료 판정과 부족 인원 수에 포함되지 않습니다.
+
+### English
+
+- **Patch 12.1.5:** Added support for the new game version and updated Item Level and Auto Repair for the changed game APIs.
+- **Voidcore Helper:** Added Kith'ix as a raid BIS source. Its loot is now available when choosing targets and evaluating a Voidcore roll.
+- **Item Level:** Added gear upgrade progress, matched its text color to item quality, and adjusted placement for weapon and off-hand slots.
+- **Ready Check:** Added augment and Vantus runes as optional items in the personal and raid windows. They do not affect readiness or missing-player counts.
+
 ## 2.2.2
 
 Release date: 2026-10-11
