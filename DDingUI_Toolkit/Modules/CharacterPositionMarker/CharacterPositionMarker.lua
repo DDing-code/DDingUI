@@ -156,11 +156,6 @@ local function EnsureDB()
     end
 
     local db = ns.db.profile.CharacterPositionMarker
-    -- [REFACTOR] "근딜 전문화일 때만 거리 체크" -> per-role range check boxes.
-    -- Runs before defaults are merged so an old "melee only" choice keeps its meaning.
-    if db.rangeCheckMelee == nil and db.meleeDpsOnly == true then
-        db.rangeCheckTank, db.rangeCheckMelee, db.rangeCheckRanged, db.rangeCheckHealer = false, true, false, false
-    end
     local defaults = ns.defaults and ns.defaults.profile and ns.defaults.profile.CharacterPositionMarker
     if defaults and ns.MergeDefaults then
         ns:MergeDefaults(db, defaults)
@@ -766,21 +761,6 @@ local function IsCurrentRoleEnabled(db)
     return false
 end
 
-local RANGE_CHECK_KEYS = {
-    TANK = "rangeCheckTank", MELEE = "rangeCheckMelee", RANGED = "rangeCheckRanged", HEALER = "rangeCheckHealer",
-}
-
---- Range colour applies to the current spec's role (tank / melee / ranged / healer).
---- Unknown spec: only when every role is checked.
-local function IsRangeCheckRoleEnabled(db)
-    local category = GetCurrentRoleCategory()
-    if category then return db[RANGE_CHECK_KEYS[category]] ~= false end
-    for _, key in pairs(RANGE_CHECK_KEYS) do
-        if db[key] == false then return false end
-    end
-    return true
-end
-
 local function HasAttackableTarget()
     return UnitExists("target")
         and UnitCanAttack("player", "target")
@@ -909,7 +889,7 @@ function CharacterPositionMarker:IsOutOfMeleeRange()
     local db = self.db or EnsureDB()
     if not db then return false end
     if not db.rangeCheck then return false end
-    if not IsRangeCheckRoleEnabled(db) then return false end
+    if db.meleeDpsOnly == true and not IsMeleeDpsSpec() then return false end
     if not HasAttackableTarget() then return false end
 
     return IsTargetOutOfRange(db)
