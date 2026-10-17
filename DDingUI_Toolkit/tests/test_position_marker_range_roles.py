@@ -65,5 +65,8 @@ def test_settings_show_four_boxes_only_while_range_check_is_on():
         for _, k in ipairs(keys) do assert(fields["profile.CharacterPositionMarker." .. k].visible()) end
         ns.db.profile.CharacterPositionMarker.rangeCheck = false
         for _, k in ipairs(keys) do assert(not fields["profile.CharacterPositionMarker." .. k].visible()) end
-        assert(ns.L.CHARPOSMARKER_RANGE_ROLES == "거리 체크할 전문화")
+        -- labels say "거리 체크" so they are not mistaken for the "전문화별 표시" boxes
+        assert(fields["profile.CharacterPositionMarker.rangeCheckTank"].label == "탱커 거리 체크")
+        assert(fields["profile.CharacterPositionMarker.rangeCheckHealer"].label == "힐러 거리 체크")
+        assert(fields["profile.CharacterPositionMarker.showTank"].label == "탱커 전문화")
     ''')

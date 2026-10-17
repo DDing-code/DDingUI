@@ -1806,31 +1806,29 @@ function ns:InitConfigTree()
                 if mod and mod.ApplySettings then mod:ApplySettings() end
               end,
             },
-            -- [REFACTOR] range check per role (was one "melee DPS only" box)
-            { type = "header", label = L["CHARPOSMARKER_RANGE_ROLES"],
-              visible = function() return ns:GetDBValue("profile.CharacterPositionMarker.rangeCheck") ~= false end },
-            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckTank", label = L["CHARPOSMARKER_SHOW_TANK"],
+            -- [REFACTOR] range check per role (was one "melee DPS only" box); visibility stays under "전문화별 표시"
+            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckTank", label = L["CHARPOSMARKER_RANGE_TANK"],
               visible = function() return ns:GetDBValue("profile.CharacterPositionMarker.rangeCheck") ~= false end,
               onChange = function()
                 local mod = ns.modules and ns.modules["CharacterPositionMarker"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end
               end,
             },
-            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckMelee", label = L["CHARPOSMARKER_SHOW_MELEE"],
+            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckMelee", label = L["CHARPOSMARKER_RANGE_MELEE"],
               visible = function() return ns:GetDBValue("profile.CharacterPositionMarker.rangeCheck") ~= false end,
               onChange = function()
                 local mod = ns.modules and ns.modules["CharacterPositionMarker"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end
               end,
             },
-            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckRanged", label = L["CHARPOSMARKER_SHOW_RANGED"],
+            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckRanged", label = L["CHARPOSMARKER_RANGE_RANGED"],
               visible = function() return ns:GetDBValue("profile.CharacterPositionMarker.rangeCheck") ~= false end,
               onChange = function()
                 local mod = ns.modules and ns.modules["CharacterPositionMarker"]
                 if mod and mod.ApplySettings then mod:ApplySettings() end
               end,
             },
-            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckHealer", label = L["CHARPOSMARKER_SHOW_HEALER"],
+            { type = "toggle", key = "profile.CharacterPositionMarker.rangeCheckHealer", label = L["CHARPOSMARKER_RANGE_HEALER"],
               visible = function() return ns:GetDBValue("profile.CharacterPositionMarker.rangeCheck") ~= false end,
               onChange = function()
                 local mod = ns.modules and ns.modules["CharacterPositionMarker"]
