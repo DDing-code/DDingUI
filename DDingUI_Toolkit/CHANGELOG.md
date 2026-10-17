@@ -1,5 +1,20 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.3.2
+
+Release date: 2026-10-18
+Scope: Changes after the 2.2.3.1 release commit d9d66fa.
+
+### 한국어
+
+- **캐릭터 위치 마커:** 사거리 밖 색상 변경을 탱커·근딜·원딜·힐러 전문화별로 설정할 수 있습니다. 기존 ‘근딜 전문화일 때만 거리 체크’ 설정은 근딜만 켜진 상태로 옮깁니다.
+- **파티 트래커:** 편집 모드에서 파티 트래커 본체와 분리 마나바의 위치 조정 항목이 사라지던 문제를 수정했습니다.
+
+### English
+
+- **Character Position Marker:** Added separate out-of-range color checks for tank, melee DPS, ranged DPS, and healer specializations. The previous melee-only setting migrates to melee-only range checking.
+- **Party Tracker:** Fixed the Party Tracker and separate mana bar disappearing from edit mode.
+
 ## 2.2.3.1
 
 Release date: 2026-10-15
