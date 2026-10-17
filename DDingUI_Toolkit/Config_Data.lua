@@ -1948,6 +1948,13 @@ function ns:InitConfigTree()
             { type = "toggle", key = "profile.RangeDisplay.showUnitLabel", label = L["RANGEDISPLAY_SHOW_LABEL"], onChange = RefreshRangeDisplay },
             { type = "toggle", key = "profile.RangeDisplay.showUnknown", label = L["RANGEDISPLAY_SHOW_UNKNOWN"], onChange = RefreshRangeDisplay },
 
+            -- [REFACTOR] show only on the checked spec roles
+            { type = "header", label = L["CHARPOSMARKER_ROLE_SETTINGS"] },
+            { type = "toggle", key = "profile.RangeDisplay.showTank", label = L["CHARPOSMARKER_SHOW_TANK"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showHealer", label = L["CHARPOSMARKER_SHOW_HEALER"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showMelee", label = L["CHARPOSMARKER_SHOW_MELEE"], onChange = RefreshRangeDisplay },
+            { type = "toggle", key = "profile.RangeDisplay.showRanged", label = L["CHARPOSMARKER_SHOW_RANGED"], onChange = RefreshRangeDisplay },
+
             { type = "header", label = L["RANGEDISPLAY_STYLE_SETTINGS"] },
             { type = "toggle", key = "profile.RangeDisplay.showAccentLine", label = L["RANGEDISPLAY_SHOW_ACCENT_LINE"], onChange = RefreshRangeDisplay },
             { type = "slider", key = "profile.RangeDisplay.width", label = L["RANGEDISPLAY_WIDTH"], min = 80, max = 260, step = 1, onChange = RefreshRangeDisplay },

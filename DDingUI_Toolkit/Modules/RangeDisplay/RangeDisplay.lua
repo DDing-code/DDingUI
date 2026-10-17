@@ -34,6 +34,26 @@ local function SafeNumber(value)
     return number
 end
 
+-- [REFACTOR] per-role visibility (same melee DPS list as CharacterPositionMarker)
+local MELEE_DPS_SPEC_IDS = {
+    [70] = true, [71] = true, [72] = true, [103] = true, [251] = true, [252] = true, [255] = true,
+    [259] = true, [260] = true, [261] = true, [263] = true, [269] = true, [577] = true,
+}
+local ROLE_KEYS = { TANK = "showTank", HEALER = "showHealer", MELEE = "showMelee", RANGED = "showRanged" }
+
+--- "TANK" | "HEALER" | "MELEE" | "RANGED", or nil when the spec cannot be read.
+local function GetRoleCategory()
+    if not GetSpecialization then return nil end
+    local specIndex = GetSpecialization()
+    if not specIndex or IsSecretValue(specIndex) then return nil end
+    local role = GetSpecializationRole and GetSpecializationRole(specIndex)
+    local specID = GetSpecializationInfo and GetSpecializationInfo(specIndex)
+    if IsSecretValue(role) or IsSecretValue(specID) then return nil end
+    if role == "TANK" or role == "HEALER" then return role end
+    if role ~= "DAMAGER" then return nil end
+    return MELEE_DPS_SPEC_IDS[specID] and "MELEE" or "RANGED"
+end
+
 local function SafeUnitExists(unit)
     local ok, exists = pcall(UnitExists, unit)
     if not ok or IsSecretValue(exists) then return nil end
@@ -315,6 +335,13 @@ function RangeDisplay:UpdateUnit(unit)
     if not frame or not active then return end
 
     if self.db.combatOnly and not InCombatLockdown() then
+        frame:Hide()
+        return
+    end
+
+    -- unknown spec: keep showing
+    local role = GetRoleCategory()
+    if role and self.db[ROLE_KEYS[role]] == false then
         frame:Hide()
         return
     end
