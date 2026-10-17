@@ -225,3 +225,38 @@ def test_disabled_module_mover_and_snap_to_center():
     ''')
     pos = g.ns.db.profile.CombatTimer.position
     assert (pos.x, pos.y) == (5, -100)  # typed values are exact; snapping applies to drags only
+
+
+def test_party_tracker_stays_in_edit_mode_across_preview_states():
+    lua = toolkit_runtime()
+    lua.execute('''
+        ns.db.profile.modules.PartyTracker = true
+        ns.db.profile.PartyTracker = {
+            position = { point="CENTER", relativePoint="CENTER", x=-500, y=-110 },
+            manaPosition = { point="CENTER", relativePoint="CENTER", x=0, y=-150 },
+        }
+        local main = CreateFrame("Frame", "DDingToolKit_PartyTrackerFrame", UIParent)
+        main:SetSize(150, 200); main:SetPoint("CENTER", UIParent, "CENTER", -500, -110); main:Hide()
+        local mana = CreateFrame("Frame", "DDingToolKit_PartyTrackerManaFrame", UIParent)
+        mana:SetSize(150, 150); mana:SetPoint("CENTER", UIParent, "CENTER", 0, -150); mana:Hide()
+        previewEntered = 0
+        ns.PartyTracker = {
+            enabled = true,
+            EnterEditPreview = function() previewEntered = previewEntered + 1; main:Show(); mana:Show() end,
+            ExitEditPreview = function() main:Hide(); mana:Hide() end,
+        }
+        ns.DDingToolKit.modules.PartyTracker = ns.PartyTracker
+    ''')
+    enter(lua)
+    lua.execute('''
+        assert(previewEntered == 1)
+        assert(_G.DDingToolKit_PartyTrackerFrame:IsShown())
+        assert(_G.DDingToolKitMover_PartyTracker:IsShown())
+        assert(_G.DDingToolKitMover_PartyTracker_Mana:IsShown())
+        for _, f in ipairs(objects) do if f.gridSpacingBtn then remote = f end end
+        assert(remote and remote.previewControl:GetValue() == false)
+        remote.previewControl.buttons[2]:Fire("OnClick", "LeftButton")
+        assert(remote.previewControl:GetValue() == true)
+        assert(_G.DDingToolKitMover_PartyTracker:IsShown())
+        assert(_G.DDingToolKitMover_PartyTracker_Mana:IsShown())
+    ''')

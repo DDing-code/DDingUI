@@ -217,7 +217,7 @@ local REG = {
         dbPath = "PartyTracker.position",
         posType = "standard",
         module = "PartyTracker",
-        previewState = "combat",
+        previewState = "always",
         defaultW = 150, defaultH = 200,
     },
     {
@@ -226,7 +226,7 @@ local REG = {
         dbPath = "PartyTracker.manaPosition",
         posType = "standard",
         module = "PartyTracker",
-        previewState = "combat",
+        previewState = "always",
         defaultW = 150, defaultH = 150,
     },
     {
