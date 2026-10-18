@@ -1,5 +1,18 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.3.3
+
+Release date: 2026-10-18
+Scope: Changes after the 2.2.3.2 release commit 8ad94b7.
+
+### 한국어
+
+- **공허핵 도우미:** 키식스 전리품 목록을 불러오지 못하던 문제를 수정했습니다. 게임의 모험 안내서에서 현재 보스 번호를 읽어 BIS 선택 화면에 전리품을 표시합니다.
+
+### English
+
+- **Voidcore Helper:** Fixed Kith'ix loot failing to load. The BIS selection screen now reads the encounter ID from the current Encounter Journal data to show its loot.
+
 ## 2.2.3.2
 
 Release date: 2026-10-18
