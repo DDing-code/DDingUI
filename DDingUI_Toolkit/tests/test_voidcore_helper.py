@@ -305,10 +305,18 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         function UnitClass() return "Priest", "PRIEST", 5 end
         function InCombatLockdown() return inCombat == true end
         EncounterJournal = { instanceID = 90, IsShown = function() return false end }
-        currentInstance, difficulty, filterClass, filterSpec, slotFilter = 90, 16, 2, 70, 11
+        currentInstance, currentTier, difficulty, filterClass, filterSpec, slotFilter = 90, 1, 16, 2, 70, 11
         function EJ_GetDifficulty() return difficulty end
+        function EJ_GetCurrentTier() return currentTier end
+        function EJ_GetNumTiers() return 2 end
+        function EJ_SelectTier(tier) currentTier = tier end
+        function EJ_GetInstanceByIndex(index, raid)
+            if index ~= 1 or not raid then return nil end
+            return currentTier == 2 and 1324 or 1322
+        end
         function EJ_GetLootFilter() return filterClass, filterSpec end
         function EJ_SelectInstance(id)
+            assert(id ~= 1324 or currentTier == 2, "new raid requires its journal tier")
             currentInstance, difficulty = id, 1
             notify("EJ_LOOT_DATA_RECIEVED")
         end
@@ -320,7 +328,7 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
             end
             return "Ula'tek", nil, id, nil, nil, 1322
         end
-        function EJ_SelectEncounter(id) currentEncounter = id end
+        function EJ_SelectEncounter(id) currentEncounter, difficulty = id, 1 end
         function EJ_ResetLootFilter() filterClass, filterSpec = 0, 0 end
         function EJ_SetLootFilter(class, spec) filterClass, filterSpec = class, spec end
         loot, outdated, requests = {}, true, {}
@@ -371,7 +379,7 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
                 link = "item:" .. id .. ":0:0", icon = 100, slot = "Head" }
         end
         function checkRestored()
-            assert(currentInstance == 90 and difficulty == 16)
+            assert(currentInstance == 90 and currentTier == 1 and difficulty == 16)
             assert(filterClass == 2 and filterSpec == 70 and slotFilter == 11)
         end
     ''')

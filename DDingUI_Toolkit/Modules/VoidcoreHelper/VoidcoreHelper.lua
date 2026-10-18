@@ -451,6 +451,7 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     end
 
     local previous = {
+        tier = EJ_GetCurrentTier and SafeNumber(EJ_GetCurrentTier()) or nil,
         difficulty = EJ_GetDifficulty and EJ_GetDifficulty() or nil,
         instanceID = EncounterJournal and SafeNumber(EncounterJournal.instanceID) or nil,
         encounterID = EncounterJournal and SafeNumber(EncounterJournal.encounterID) or nil,
@@ -474,9 +475,24 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
     local ok = journalInstanceID and pcall(function()
         if EJ_ClearSearch then EJ_ClearSearch() end
         if EJ_ResetLootFilter then EJ_ResetLootFilter() end
+        if EJ_SelectTier and EJ_GetNumTiers and EJ_GetInstanceByIndex then
+            local found = false
+            for tier = 1, SafeNumber(EJ_GetNumTiers()) or 0 do
+                EJ_SelectTier(tier)
+                local index = 1
+                while true do
+                    local instanceID = SafeNumber(EJ_GetInstanceByIndex(index, source.kind == "raid"))
+                    if not instanceID then break end
+                    if instanceID == journalInstanceID then found = true; break end
+                    index = index + 1
+                end
+                if found then break end
+            end
+            if not found and previous.tier then EJ_SelectTier(previous.tier) end
+        end
         EJ_SelectInstance(journalInstanceID)
-        EJ_SetDifficulty(source.kind == "raid" and 16 or 23)
         if source.kind == "raid" then EJ_SelectEncounter(source.encounterID) end
+        EJ_SetDifficulty(source.kind == "raid" and 16 or 23)
         EJ_SetLootFilter(classID, specID)
         if C_EncounterJournal.ResetSlotFilter then C_EncounterJournal.ResetSlotFilter() end
 
@@ -523,6 +539,7 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
         end
     end)
 
+    if previous.tier and EJ_SelectTier then pcall(EJ_SelectTier, previous.tier) end
     if previous.instanceID then
         pcall(EJ_SelectInstance, previous.instanceID)
         if previous.encounterID then pcall(EJ_SelectEncounter, previous.encounterID) end
