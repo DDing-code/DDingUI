@@ -28,7 +28,7 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'tostring(instanceID) .. ":" .. tostring(difficultyID)' not in module
     assert 'function VoidcoreHelper:OpenBISSettings()' in module
     assert 'local SOURCE_ORDER = {' in module
-    assert '[286019] = { kind = "raid", encounterID = 3513, journalInstanceID = 1324' in module
+    assert '[286019] = { kind = "raid", encounterIndex = 1, journalInstanceID = 1324' in module
     assert 'L["VCH_SOURCE_KITHIX"] = "키식스"' in (ROOT / "Locales/koKR.lua").read_text(encoding="utf-8-sig")
     assert 'L["VCH_SOURCE_KITHIX"] = "Kith\'ix"' in (ROOT / "Locales/enUS.lua").read_text(encoding="utf-8-sig")
     assert '286019' in module.split('raid = {', 1)[1].split('}', 1)[0]
@@ -328,7 +328,16 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
             end
             return "Ula'tek", nil, id, nil, nil, 1322
         end
-        function EJ_SelectEncounter(id) currentEncounter, difficulty = id, 1 end
+        function EJ_GetEncounterInfoByIndex(index)
+            if currentInstance == 1324 and index == 1 then
+                assert(difficulty == 16, "discover Kith'ix at the selected difficulty")
+                return "키식스", nil, 3514, nil, nil, 1324
+            end
+        end
+        function EJ_SelectEncounter(id)
+            assert(id ~= 3513, "Bad encounter number")
+            currentEncounter, difficulty = id, 1
+        end
         function EJ_ResetLootFilter() filterClass, filterSpec = 0, 0 end
         function EJ_SetLootFilter(class, spec) filterClass, filterSpec = class, spec end
         loot, outdated, requests = {}, true, {}
@@ -341,8 +350,8 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         function EJ_IsLootListOutOfDate() return outdated end
         expectedSpec = 256
         function EJ_GetNumLoot()
-            local raid = currentEncounter == 2895 or currentEncounter == 3513
-            assert(currentInstance == (currentEncounter == 3513 and 1324 or 1322)
+            local raid = currentEncounter == 2895 or currentEncounter == 3514
+            assert(currentInstance == (currentEncounter == 3514 and 1324 or 1322)
                 and difficulty == (raid and 16 or 23), "select instance before difficulty")
             assert(filterClass == 5 and filterSpec == expectedSpec, "keep the selected spec filter")
             assert(slotFilter == 0, "read all equipment slots")

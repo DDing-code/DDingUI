@@ -52,7 +52,7 @@ local SOURCE_BY_ITEM = {
     [278289] = { kind = "raid", encounterID = 2887, fallback = "Twin Fangs" },
     [278290] = { kind = "raid", encounterID = 2883, fallback = "Coiled Altar" },
     [278284] = { kind = "raid", encounterID = 2895, fallback = "Ula'tek" },
-    [286019] = { kind = "raid", encounterID = 3513, journalInstanceID = 1324, fallback = "Kith'ix", fallbackKey = "VCH_SOURCE_KITHIX" },
+    [286019] = { kind = "raid", encounterIndex = 1, journalInstanceID = 1324, fallback = "Kith'ix", fallbackKey = "VCH_SOURCE_KITHIX" },
 }
 
 local SOURCE_ORDER = {
@@ -270,7 +270,7 @@ local function GetSourceName(sourceItemID)
             local ok, name = pcall(EJ_GetInstanceInfo, source.journalInstanceID)
             name = ok and SafeString(name) or nil
             if name and name ~= "" then return name, source.kind end
-        elseif source.kind == "raid" and EJ_GetEncounterInfo then
+        elseif source.kind == "raid" and source.encounterID and EJ_GetEncounterInfo then
             local ok, name = pcall(EJ_GetEncounterInfo, source.encounterID)
             name = ok and SafeString(name) or nil
             if name and name ~= "" then return name, source.kind end
@@ -491,8 +491,17 @@ function VoidcoreHelper:GetSourceLoot(sourceItemID, specID)
             if not found and previous.tier then EJ_SelectTier(previous.tier) end
         end
         EJ_SelectInstance(journalInstanceID)
-        if source.kind == "raid" then EJ_SelectEncounter(source.encounterID) end
         EJ_SetDifficulty(source.kind == "raid" and 16 or 23)
+        if source.kind == "raid" then
+            local encounterID = source.encounterID
+            if source.encounterIndex and EJ_GetEncounterInfoByIndex then
+                local _, _, listedID = EJ_GetEncounterInfoByIndex(source.encounterIndex)
+                encounterID = SafeNumber(listedID)
+            end
+            if not encounterID then error("missing journal encounter") end
+            EJ_SelectEncounter(encounterID)
+            EJ_SetDifficulty(16)
+        end
         EJ_SetLootFilter(classID, specID)
         if C_EncounterJournal.ResetSlotFilter then C_EncounterJournal.ResetSlotFilter() end
 
