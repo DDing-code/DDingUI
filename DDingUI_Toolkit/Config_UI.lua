@@ -1592,7 +1592,7 @@ function ConfigUI:Initialize()
     end
 
     -- 메인 패널
-    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.3.3" -- [12.0.1] GetAddOnMetadata 폴백 제거
+    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.4" -- [12.0.1] GetAddOnMetadata 폴백 제거
 
     -- [STYLE] C12: the title bar owns the series "편집 모드" button (StyleLib CreateTitleBar opts.editMode).
     -- Movers closes this window on entry and reopens it when edit mode ends.
