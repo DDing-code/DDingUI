@@ -333,8 +333,11 @@ function S:RenderDetail(items, visible, weekday)
             tag=string.format(L["SCHEDULE_HOLIDAY_RANGE"],sm,sd,em,ed)
         end
         row.time:SetText(timeText); row.time:SetTextColor(unpack(item.kind == "holiday" and HolidayColor(item) or accent))
+        -- [STYLE] 이전 항목의 제한 폭을 풀고 측정한 뒤 꼬리표 안에서 말줄임한다.
+        row.tag:SetWidth(0)
         row.tag:SetText(tag); row.tag:SetTextColor(unpack(tagColor))
         row.badge:SetWidth(math.min(166,row.tag:GetStringWidth()+10)); Surface(row.badge,4,Alpha(tagColor,0.05),Alpha(tagColor,0.6))
+        row.tag:SetWidth(row.badge:GetWidth()-10)
         row.source:SetWidth(math.max(1,161-row.badge:GetWidth())); row.source:SetShown(row.badge:GetWidth()<150)
         row.source:SetText(source or "")
         for _,memberRow in ipairs(row.members) do memberRow:Hide() end
@@ -431,7 +434,8 @@ function S:Render()
                 if number==festival.holiday.first then cell.holidayName:SetText(festival.title); cell.holidayName:SetTextColor(unpack(color)); cell.holidayName:Show(); top=39 end
             end
             local capacity=math.min(4,math.floor((height-top-3)/19))
-            if #entries>capacity then capacity=math.max(0,capacity-1) end
+            -- [STYLE] 6주 달에도 일정 두 줄이 들어가도록 실제 더 보기 높이만 예약한다.
+            if #entries>capacity then capacity=math.max(0,math.min(4,math.floor((height-top-3-cell.more:GetHeight())/19))) end
             for r,row in ipairs(cell.rows) do
                 local item=entries[r]
                 if r<=capacity and item then

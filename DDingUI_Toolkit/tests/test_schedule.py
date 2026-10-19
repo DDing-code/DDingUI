@@ -209,6 +209,37 @@ def test_real_stylelib_window_month_navigation_filter_detail_and_scale():
         ''')
 
 
+def test_dense_six_week_cells_and_long_detail_badges_fit_their_bounds():
+    lua = schedule_runtime(window=True, locale="enUS")
+    ready(lua)
+    lua.execute('''
+        local char=S.cache.characters["띵띵-아즈샤라"]
+        for i=1,6 do
+            local event=ns:DeepCopy(char.events[1])
+            event.month=8; event.day=22; event.eventID="dense"..i
+            char.events[#char.events+1]=event
+        end
+        S:ToggleWindow(); Advance(1); S:MoveMonth(-2)
+        local day=S:DayNumber(2026,8,22)
+        for _,cell in ipairs(S.frame.cells) do if cell.dayNumber==day then
+            assert(cell.rows[2]:IsShown(), "6주 달에도 일정 두 줄과 더 보기가 함께 들어간다")
+            assert(not cell.rows[3]:IsShown() and cell.more:IsShown())
+            local _,cy,_,ch=cell:Rect(); local _,my,_,mh=cell.more:Rect()
+            local _,ry=cell.rows[2]:Rect()
+            assert(my>=cy and my+mh<=ry and my+mh<=cy+ch, "더 보기는 일정/다음 주와 겹치지 않는다")
+        end end
+        S:SelectDay(S:DayNumber(2026,10,22))
+        for _,row in ipairs(S.frame.detailRows) do if row:IsShown() then
+            local bx,_,bw=row.badge:Rect(); local tx,_,tw=row.tag:Rect()
+            assert(tx>=bx+4 and tx+tw<=bx+bw-4, "긴 영문 축제 태그도 꼬리표 안에 들어간다")
+        end end
+        S:Render()
+        for _,row in ipairs(S.frame.detailRows) do if row:IsShown() then
+            assert(row.tag:GetWidth()>0 and row.tag:GetWidth()<=156)
+        end end
+    ''')
+
+
 def test_settings_slash_locales_and_existing_profiles():
     lua = schedule_runtime(window=True)
     lua.execute('''
