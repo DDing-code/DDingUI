@@ -54,12 +54,10 @@ function S:ItemLines(item)
         if source and source ~= "" then lines[#lines+1]=source end
     elseif item.kind == "reset" then
         lines[#lines+1]=item.time .. " · " .. L["SCHEDULE_RESET_CONTENT"]
-        if item.released > 0 then lines[#lines+1]=string.format(L["SCHEDULE_UNLOCKS"],item.released) end
     end
     for _, member in ipairs(item.members) do
         local text = member.char.name .. "-" .. member.char.realm .. " · "
-        if member.event then text = text .. self:Status(member.event)
-        else text = text .. string.format("%d/%d", member.lockout.encounterProgress, member.lockout.numEncounters) end
+        text = text .. self:Status(member.event)
         lines[#lines + 1] = text
     end
     return lines
@@ -310,12 +308,9 @@ function S:RenderDetail(items, visible, weekday)
             row.source=Label(row,11,C.text.dim); row.source:SetPoint("TOPLEFT",row.badge,"TOPRIGHT",5,-2)
             row.members={}
             row.line=Fill(row,T.BORDER_SEP); row.line:ClearAllPoints(); row.line:SetPoint("BOTTOMLEFT"); row.line:SetPoint("BOTTOMRIGHT"); row.line:SetHeight(1)
-            row.progress=CreateFrame("StatusBar",nil,row); row.progress:SetPoint("BOTTOMLEFT",44,5); row.progress:SetSize(164,4)
-            row.progress:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8"); row.progress:SetStatusBarColor(unpack(accent)); row.progress:SetMinMaxValues(0,1)
         end
         row:ClearAllPoints(); row:SetPoint("TOPLEFT",0,-y); row:SetWidth(212)
         row.title:SetText(item.title)
-        row.progress:Hide()
         local timeText, tag, source, tagColor = "", "", "", C.text.disabled
         if item.kind == "event" then
             timeText=string.format("%02d:%02d",item.event.hour,item.event.minute)
@@ -323,10 +318,8 @@ function S:RenderDetail(items, visible, weekday)
             source=(item.event.calendarType == "GUILD_EVENT" or item.event.calendarType == "GUILD_ANNOUNCEMENT") and item.event.guildName or item.event.invitedBy
             tagColor=(item.event.calendarType == "GUILD_EVENT" or item.event.calendarType == "GUILD_ANNOUNCEMENT") and accent or T.SUCCESS
         elseif item.kind == "reset" then
-            timeText=item.time; tag=item.released > 0 and string.format(L["SCHEDULE_UNLOCKS"],item.released) or L["SCHEDULE_RESET_CONTENT"]
+            timeText=item.time; tag=L["SCHEDULE_RESET_CONTENT"]
             tagColor=T.WARNING
-            if item.released > 0 then source=L["SCHEDULE_RESET_CONTENT"] end
-        elseif item.kind == "lockout" then timeText=L["SCHEDULE_LOCKOUT"]; tag=L["SCHEDULE_RAID_LOCKOUT"]; tagColor=T.WARNING
         else
             timeText=L["SCHEDULE_HOLIDAY"]
             local _,sm,sd=self:DateFromDay(item.holiday.first); local _,em,ed=self:DateFromDay(item.holiday.last)
@@ -350,7 +343,7 @@ function S:RenderDetail(items, visible, weekday)
                 memberRow.initial=Label(memberRow.dot,11,C.text.normal); memberRow.initial:SetPoint("CENTER")
                 memberRow.label=Label(memberRow,11,C.text.dim,148); memberRow.label:SetPoint("LEFT",18,0)
             end
-            local status=member.event and self:Status(member.event) or string.format("%d/%d",member.lockout.encounterProgress,member.lockout.numEncounters)
+            local status=self:Status(member.event)
             memberRow:ClearAllPoints(); memberRow:SetPoint("TOPLEFT",44,-43-(j-1)*17)
             local color=ClassColor(member.char)
             Surface(memberRow.dot,8,C.bg.input,color)
@@ -359,7 +352,6 @@ function S:RenderDetail(items, visible, weekday)
             memberRow.label:SetText(Colored(member.char.name,color) .. " " .. status); memberRow:Show()
             height=height+17
         end
-        if item.kind == "lockout" then row.progress:SetValue(item.progress); row.progress:Show(); height=height+8 end
         row:SetHeight(height)
         Surface(row,4,Alpha(accent,self.focusKey == item.key and 0.06 or 0),Alpha(accent,0))
         local current=item

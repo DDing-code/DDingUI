@@ -2835,7 +2835,6 @@ function ns:InitConfigTree()
                     mod.enabled=value == true
                 end},
             {type="button", label=L["SCHEDULE_OPEN"], onClick=function() ns.Schedule:ToggleWindow() end},
-            {type="toggle", key="profile.Schedule.showLockouts", label=L["SCHEDULE_SHOW_LOCKOUTS"], onChange=RefreshSchedule},
             {type="toggle", key="profile.Schedule.showHolidays", label=L["SCHEDULE_SHOW_HOLIDAYS"], onChange=RefreshSchedule},
             {type="toggle", key="profile.Schedule.showReset", label=L["SCHEDULE_SHOW_RESET"], onChange=RefreshSchedule},
             {type="slider", key="profile.Schedule.staleDays", label=L["SCHEDULE_STALE_DAYS"], min=1, max=30, step=1, onChange=RefreshSchedule},

@@ -162,24 +162,6 @@ function Schedule:ReadCalendar()
     return events, holidays
 end
 
-function Schedule:ReadLockouts()
-    local count = Read(GetNumSavedInstances)
-    if not Integer(count, 0, 1000) then return nil end
-    local result, epoch = {}, self:ServerTime()
-    for i = 1, count do
-        local ok, name, id, reset, difficulty, locked, _, _, isRaid, _, diffName, num, progress = pcall(GetSavedInstanceInfo, i)
-        if not ok or not Plain(isRaid, "boolean") or not Plain(locked, "boolean") then return nil end
-        if isRaid and locked then
-            if not Plain(name, "string") or not Integer(id, 0, 2^53) or not Integer(difficulty, 0, 1000)
-                or not Plain(reset, "number") or not (reset >= 0 and reset <= 366 * DAY)
-                or not Integer(num, 0, 1000) or not Integer(progress, 0, num) then return nil end
-            if reset > 0 then result[#result + 1] = {name=Text(name), instanceID=id, difficultyID=difficulty,
-                difficultyName=Text(diffName) or "", numEncounters=num, encounterProgress=progress, resetAt=epoch + reset, isRaid=true} end
-        end
-    end
-    return result
-end
-
 local function CancelTimer()
     if timer then timer:Cancel(); timer = nil end
 end
@@ -221,23 +203,44 @@ end
 function Schedule:RequestRefresh()
     if not active or loading or InCombatLockdown() then self.pending = true; return end
     Read(C_Calendar and C_Calendar.OpenCalendar)
-    Read(RequestRaidInfo)
     self:QueueRefresh(1)
+end
+
+-- [STYLE] 저장 구조를 늘리지 않고 일정 전용 바로가기를 제공한다.
+function Schedule:ShowMinimapButton()
+    if not self.minimapIcon then
+        local SL = _G.DDingUI_StyleLib
+        -- shortcut: 버튼 위치는 접속 중에만 유지한다. 영구 저장은 저장 키 추가 승인 후 제공한다.
+        self.minimapPosition = self.minimapPosition or {hide=false, minimapPos=195}
+        local data, icon = SL.CreateMinimapButton({
+            key="DDingUI_Toolkit_Schedule", addonKey="MJToolkit", displayName=L["SCHEDULE_TITLE"],
+            icon="Interface\\AddOns\\DDingUI_Toolkit\\Media\\Navigation\\Schedule.tga", db=self.minimapPosition,
+            onLeftClick=function() self:ToggleWindow() end, leftText=L["SCHEDULE_TOGGLE"],
+        })
+        if data then
+            local accent = SL.GetAccent("MJToolkit")
+            data.iconR, data.iconG, data.iconB = unpack(accent)
+        end
+        self.minimapIcon = icon
+    end
+    if self.minimapIcon then self.minimapIcon:Show("DDingUI_Toolkit_Schedule") end
 end
 
 function Schedule:OnEnable()
     self:OnInitialize()
     if self:IsUnavailable() then self.unavailable = true; return end
     self.unavailable, active = nil, true
+    self:ShowMinimapButton()
     for _, event in ipairs({"PLAYER_ENTERING_WORLD", "LOADING_SCREEN_ENABLED", "LOADING_SCREEN_DISABLED",
         "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "CALENDAR_UPDATE_EVENT_LIST",
-        "CALENDAR_UPDATE_PENDING_INVITES", "UPDATE_INSTANCE_INFO"}) do driver:RegisterEvent(event) end
+        "CALENDAR_UPDATE_PENDING_INVITES"}) do driver:RegisterEvent(event) end
     self:RequestRefresh()
 end
 
 function Schedule:OnDisable()
     active = false
     CancelTimer()
+    if self.minimapIcon then self.minimapIcon:Hide("DDingUI_Toolkit_Schedule") end
     -- [12.0.1] 비활성 중에도 로딩 상태는 추적해 다시 켰을 때 대기하지 않는다.
     driver:UnregisterAllEvents()
     driver:RegisterEvent("LOADING_SCREEN_ENABLED")
@@ -257,18 +260,6 @@ driver:SetScript("OnEvent", function(_, event, complete)
         calendarReady = not ns.IsSecretValue(complete) and complete ~= false
         Schedule:QueueRefresh()
     elseif event == "CALENDAR_UPDATE_PENDING_INVITES" then Schedule:QueueRefresh()
-    elseif event == "UPDATE_INSTANCE_INFO" then
-        if active and not loading and not InCombatLockdown() then
-            local key, identity = Schedule:Identity()
-            local lockouts = Schedule:ReadLockouts()
-            if key and lockouts then
-                local char = Schedule.cache.characters[key] or identity
-                char.events = char.events or {}
-                char.lockouts = lockouts
-                Schedule.cache.characters[key] = char
-                Schedule:RefreshWindow()
-            end
-        else Schedule.pending = true end
     end
 end)
 
@@ -292,7 +283,7 @@ function Schedule:Status(event)
 end
 
 function Schedule:GetDayItems(day)
-    local items, merged, locks, visible, released = {}, {}, {}, 0, 0
+    local items, merged, visible = {}, {}, 0
     for _, entry in ipairs(self:GetCharacters()) do
         if not self.db.hiddenCharacters[entry.key] then
             visible = visible + 1
@@ -308,31 +299,12 @@ function Schedule:GetDayItems(day)
                     item.members[#item.members + 1] = {char=entry.data, key=entry.key, event=event}
                 end
             end
-            if self.db.showLockouts then
-                for _, lock in ipairs(entry.data.lockouts or {}) do
-                    local expiry = self:EpochDay(lock.resetAt)
-                    local today = self.clock and math.floor((self.clock.wall + self:ServerTime() - self.clock.epoch) / DAY)
-                    if expiry and lock.resetAt > self:ServerTime() and day >= today and day <= expiry then
-                        if expiry == day then released = released + 1 end
-                        local key = lock.name .. ":" .. lock.difficultyID
-                        local item = locks[key]
-                        if not item then
-                            item = {kind="lockout", key=key, title=L["SCHEDULE_RAID_LOCKOUT"] .. " · " .. lock.name .. " " .. lock.difficultyName,
-                                members={}, order=1500, progress=0}
-                            items[#items + 1], locks[key] = item, item
-                        end
-                        item.members[#item.members + 1] = {char=entry.data, key=entry.key, lockout=lock}
-                        item.progress = math.max(item.progress, lock.numEncounters > 0 and lock.encounterProgress / lock.numEncounters or 0)
-                    end
-                end
-            end
         end
     end
     if visible == 0 then return {}, 0 end
     if self.db.showReset and self.nextReset and (day - math.floor(self.nextReset / DAY)) % 7 == 0 then
         local wall = self.nextReset % DAY
         items[#items + 1] = {kind="reset", key="reset", title=L["SCHEDULE_WEEKLY_RESET"], members={}, order=-1,
-            released=released,
             time=string.format("%02d:%02d", math.floor(wall / 3600), math.floor(wall % 3600 / 60))}
     end
     if self.db.showHolidays then

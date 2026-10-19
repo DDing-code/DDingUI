@@ -94,20 +94,48 @@ def ready(lua):
     lua.execute('Emit("LOADING_SCREEN_DISABLED"); Emit("CALENDAR_UPDATE_EVENT_LIST",true); ExpireTimers(); Emit("UPDATE_INSTANCE_INFO")')
 
 
+def load_minimap_libraries(lua):
+    for name in ("CallbackHandler-1.0/CallbackHandler-1.0.lua", "LibDataBroker-1.1.lua", "LibDBIcon-1.0/LibDBIcon-1.0.lua"):
+        load(lua, "Libs/" + name)
+
+
+def test_dedicated_minimap_button_toggles_calendar_and_follows_module_lifecycle():
+    lua = schedule_runtime(window=True)
+    load_minimap_libraries(lua)
+    ready(lua)
+    lua.execute('''
+        S:ShowMinimapButton(); Emit("PLAYER_LOGIN")
+        local button=S.minimapIcon:GetMinimapButton("DDingUI_Toolkit_Schedule")
+        assert(button and button:IsShown() and button.parent==Minimap)
+        assert(button.db~=ns.db.profile.minimap and button.db~=S.db)
+        local saved=ns.db.profile.minimap.minimapPos
+        button:Fire("OnClick","LeftButton"); Advance(1); assert(S.frame:IsShown() and not configKey)
+        button:Fire("OnClick","LeftButton"); Advance(1); assert(not S.frame:IsShown())
+        local lines={}
+        button.dataObject.OnTooltipShow({SetText=function(_,v) lines[#lines+1]=v end,
+            AddLine=function(_,v) lines[#lines+1]=v end})
+        assert(#lines==3 and lines[2]:find(ns.L.SCHEDULE_TOGGLE,1,true))
+        button.db.minimapPos=150
+        S:OnDisable(); assert(not button:IsShown())
+        S:OnEnable(); assert(button:IsShown() and S.minimapIcon:GetMinimapButton("DDingUI_Toolkit_Schedule")==button)
+        assert(button.db.minimapPos==150 and ns.db.profile.minimap.minimapPos==saved)
+    ''')
+
+
 def test_calendar_cache_is_atomic_and_merges_characters_without_moving_native_calendar():
     lua = schedule_runtime()
     lua.execute("assert(calendarReads==0 and calendarOpens==0)")
     ready(lua)
     lua.execute('''
         local char=S.cache.characters["띵띵-아즈샤라"]
-        assert(#char.events==1 and #char.lockouts==1 and #S.cache.common.holidays==1)
+        assert(#char.events==1 and #char.lockouts==0 and #S.cache.common.holidays==1)
         assert(char.events[1].hour==20 and char.events[1].minute==30 and selectedMonth==12)
         playerName="띵슈"; S:Refresh()
         S.cache.characters["띵슈-아즈샤라"].events[1].inviteStatus=8
         local items,visible=S:GetDayItems(S:DayNumber(2026,10,22))
         assert(visible==2 and items[1].kind=="reset" and items[1].time=="08:00")
         assert(items[2].kind=="event" and #items[2].members==2)
-        assert(items[3].kind=="lockout" and items[4].kind=="holiday")
+        assert(items[3].kind=="holiday" and #items==3)
         local before=S.cache.characters["띵슈-아즈샤라"]
         for _,bad in ipairs({SECRET,{calendarType=SECRET},{calendarType="PLAYER",title=SECRET},
             {calendarType="PLAYER",title="x",startTime=SECRET},
@@ -133,10 +161,8 @@ def test_loading_combat_disable_and_partial_refresh_preserve_saved_data():
         assert(calendarReads==before)
         Emit("LOADING_SCREEN_DISABLED"); ExpireTimers(); assert(calendarReads>before)
         local locks=S.cache.characters["띵띵-아즈샤라"].lockouts
-        secretLockout=true; Emit("UPDATE_INSTANCE_INFO")
+        Emit("UPDATE_INSTANCE_INFO")
         assert(S.cache.characters["띵띵-아즈샤라"].lockouts==locks)
-        secretLockout=false; lockoutCount=0; Emit("UPDATE_INSTANCE_INFO")
-        assert(#S.cache.characters["띵띵-아즈샤라"].lockouts==0)
         S:OnDisable(); before=calendarReads; Emit("CALENDAR_UPDATE_EVENT_LIST",true); ExpireTimers()
         assert(calendarReads==before)
         Emit("LOADING_SCREEN_ENABLED"); Emit("LOADING_SCREEN_DISABLED"); S:OnEnable(); ExpireTimers()
@@ -144,7 +170,7 @@ def test_loading_combat_disable_and_partial_refresh_preserve_saved_data():
     ''')
 
 
-def test_gregorian_dates_reset_fallback_and_expired_lockouts():
+def test_gregorian_dates_reset_fallback_and_legacy_lockouts_are_never_displayed():
     lua = schedule_runtime()
     ready(lua)
     for y, m, d in [(2024, 2, 29), (2026, 12, 31), (2027, 1, 1), (2100, 3, 1)]:
@@ -156,8 +182,12 @@ def test_gregorian_dates_reset_fallback_and_expired_lockouts():
         local items=S:GetDayItems(S:DayNumber(2026,10,22))
         assert(items[1].time=="08:00")
         local char=S.cache.characters["띵띵-아즈샤라"]
-        char.lockouts[1].resetAt=serverEpoch-1
+        local legacy={name="키식스",instanceID=42,difficultyID=15,difficultyName="영웅",
+            resetAt=serverEpoch+3*86400,numEncounters=8,encounterProgress=6}
+        char.lockouts={legacy}; S.db.showLockouts=true
         for _,item in ipairs(S:GetDayItems(S:DayNumber(2026,10,22))) do assert(item.kind~="lockout") end
+        assert(S:Refresh() and S.cache.characters["띵띵-아즈샤라"].lockouts[1]==legacy)
+        assert(raidRequests==0, "일정 모듈은 공격대 귀속 갱신을 요청하지 않는다")
         S.db.hiddenCharacters["띵띵-아즈샤라"]=true
         local items,visible=S:GetDayItems(S:DayNumber(2026,10,22))
         assert(#items==0 and visible==0)
@@ -253,7 +283,10 @@ def test_settings_slash_locales_and_existing_profiles():
         ns.L=setmetatable(ns.L,{__index=function(_,key) return key end})
     ''')
     load(lua, "Config_Data.lua")
-    lua.execute('tree=ns:InitConfigTree(); assert(tree.panels.schedule and ns.ConfigModuleMap.schedule=="Schedule")')
+    lua.execute('''
+        tree=ns:InitConfigTree(); assert(tree.panels.schedule and ns.ConfigModuleMap.schedule=="Schedule")
+        for _,setting in ipairs(tree.panels.schedule.settings) do assert(setting.key~="profile.Schedule.showLockouts") end
+    ''')
     load(lua, "Core/SlashCommands.lua")
     lua.execute('''
         opened=0; S.ToggleWindow=function() opened=opened+1 end
@@ -263,7 +296,7 @@ def test_settings_slash_locales_and_existing_profiles():
     for locale in ("koKR", "enUS"):
         text = (ROOT / f"Locales/{locale}.lua").read_text(encoding="utf-8-sig")
         keys = set(re.findall(r'L\["(SCHEDULE_[A-Z_0-9]+)"\]', text))
-        assert len(keys) == 58
+        assert len(keys) == 59
     toc = (ROOT / "DDingUI_Toolkit.toc").read_text(encoding="utf-8-sig")
     assert toc.index("Schedule\\Schedule.lua") < toc.index("Schedule\\Window.lua")
 
