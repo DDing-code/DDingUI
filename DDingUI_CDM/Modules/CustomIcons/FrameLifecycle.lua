@@ -38,48 +38,31 @@ function FrameLifecycle.Create(
     local function IsSpellInPlayerBook(spellID)
         if not spellID then return false end
 
-        -- Use the new Dragonflight API that checks if spell is actually known for current spec
-        -- Includes handling of spell overrides/replacements
-        if C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.FindBaseSpellByID and C_SpellBook.FindSpellOverrideByID and Enum and Enum.SpellBookSpellBank then
-            local bank = Enum.SpellBookSpellBank.Player
-
-            -- Direct check first
+        local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+        if C_SpellBook and C_SpellBook.IsSpellKnown then
             local ok, result = pcall(C_SpellBook.IsSpellKnown, spellID, bank)
-            if ok and result then
-                return true
-            end
+            if ok and not (issecretvalue and issecretvalue(result)) and type(result) == "boolean" then
+                if result then return true end
 
-            -- Check base spell if this might be an override
-            ok, result = pcall(C_SpellBook.FindBaseSpellByID, spellID)
-            if ok and result and result ~= spellID then
-                ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
-                if ok and result then
-                    return true
+                -- [REFACTOR] 배운 원본 주문만으로 미습득 특성 주문을 허용하지 않고, 현재 대체 주문만 확인한다.
+                if C_SpellBook.FindSpellOverrideByID then
+                    ok, result = pcall(C_SpellBook.FindSpellOverrideByID, spellID)
+                    if ok and not (issecretvalue and issecretvalue(result))
+                        and type(result) == "number" and result ~= spellID then
+                        ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
+                        return ok and not (issecretvalue and issecretvalue(result)) and result == true
+                    end
                 end
-            end
-
-            -- Check override spell if this might be a base
-            ok, result = pcall(C_SpellBook.FindSpellOverrideByID, spellID)
-            if ok and result and result ~= spellID then
-                ok, result = pcall(C_SpellBook.IsSpellKnown, result, bank)
-                if ok and result then
-                    return true
-                end
-            end
-
-            return false
-        end
-
-        -- Fallback to old API for backward compatibility
-        if C_SpellBook and C_SpellBook.IsSpellInSpellBook then
-            local ok, result = pcall(C_SpellBook.IsSpellInSpellBook, spellID)
-            if ok then
-                return result == true
+                return false
             end
         end
 
-        -- Fallback: assume available if API missing/failed
-        return true
+        -- [REFACTOR] 주문책 노출은 미습득 대체 주문도 포함하므로 실제 습득 여부로만 폴백한다.
+        if IsPlayerSpell then
+            local ok, result = pcall(IsPlayerSpell, spellID)
+            return ok and not (issecretvalue and issecretvalue(result)) and result == true
+        end
+        return false
     end
 
     local function IsIconLoadable(iconData)
