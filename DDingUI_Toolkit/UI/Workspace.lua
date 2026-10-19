@@ -104,6 +104,7 @@ local CATEGORY_DEFS = {
         label = L["WORKSPACE_UTILITY"],
         icon = ICON_ROOT .. "Utility.tga",
         panels = {
+            "schedule", -- [REFACTOR] 일정 월 보드
             "notepad",
             "autorepair",
             "raidlootpass",

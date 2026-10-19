@@ -94,6 +94,10 @@ Modules\MailAlert\AlertFrame.lua
 # Modules - CalendarInviteAlert
 Modules\CalendarInviteAlert\CalendarInviteAlert.lua
 
+# Modules - Schedule
+Modules\Schedule\Schedule.lua
+Modules\Schedule\Window.lua
+
 # Modules - CursorTrail
 Modules\CursorTrail\Presets.lua
 Modules\CursorTrail\CursorTrail.lua

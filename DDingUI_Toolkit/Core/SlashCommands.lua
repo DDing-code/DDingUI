@@ -49,6 +49,9 @@ local function SlashHandler(msg)
             DDingToolKit:OpenConfig("MailAlert")
         end
 
+    elseif command == "schedule" or command == "cal" or command == "일정" then -- [REFACTOR]
+        ns.Schedule:ToggleWindow()
+
     elseif command == "trail" then
         -- CursorTrail 탭으로 설정 창 열기
         arg = arg:lower()

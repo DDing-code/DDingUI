@@ -18,6 +18,7 @@ ns.defaults = {
             PartyFullAlert = true,
             MailAlert = true,
             CalendarInviteAlert = false,
+            Schedule = true, -- [REFACTOR] 기존 프로필은 다른 신규 모듈처럼 기본 비활성화.
             CursorTrail = true,
             ItemLevel = true,
             Notepad = true,
@@ -45,6 +46,17 @@ ns.defaults = {
             RaidLootPass = true,
             VoidcoreHelper = false,
             SkyridingTracker = true,
+        },
+
+        -- [REFACTOR] 일정 모듈 전용 설정. 기존 프로필 키/형태는 유지한다.
+        Schedule = {
+            guiScale = 1.0,
+            position = {point="CENTER", x=0, y=0},
+            hiddenCharacters = {},
+            staleDays = 7,
+            showLockouts = true,
+            showHolidays = true,
+            showReset = true,
         },
 
         -- 전역 설정
@@ -1099,6 +1111,7 @@ ns.defaults = {
     },
 
     global = {
+        Schedule = {characters = {}, common = {holidays = {}}}, -- [REFACTOR] 접속한 캐릭터의 공개 일정만 보관.
         -- TalentBG 직업별 설정
         TalentBG = {
             classSettings = {},  -- [classID] = { background = "" }

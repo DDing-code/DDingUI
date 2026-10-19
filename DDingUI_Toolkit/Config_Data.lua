@@ -186,6 +186,7 @@ ns.ConfigModuleMap = {
     partyfullalert  = "PartyFullAlert",
     mailalert       = "MailAlert",
     calendarinvitealert = "CalendarInviteAlert",
+    schedule        = "Schedule", -- [REFACTOR]
     cursortrail     = "CursorTrail",
     itemlevel       = "ItemLevel",
     notepad         = "Notepad",
@@ -226,6 +227,7 @@ function ns:InitConfigTree()
             { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
         }},
         { text = L["TAB_CATEGORY_UTILITY"] or "|TInterface\\ICONS\\Trade_Engineering:14:14|t |cff6baaff유틸리티|r", key = "cat_utility", children = {
+            { text = L["SCHEDULE_TITLE"], key = "schedule" },
             { text = L["TAB_TALENTBG"],         key = "talentbg" },
             { text = L["TAB_LFGALERT"],         key = "lfgalert" },
             { text = L["TAB_PREMADEGROUPFILTER"], key = "premadegroupfilter" },
@@ -2817,6 +2819,27 @@ function ns:InitConfigTree()
                 local mod = ns.modules and ns.modules["VoidcoreHelper"]
                 if mod and mod.OpenBISSettings then mod:OpenBISSettings() end
             end },
+        },
+    }
+
+    -- [REFACTOR] 일정 저장은 계정 공용, 보기 설정은 기존 프로필에 종속된다.
+    local function RefreshSchedule() if ns.Schedule then ns.Schedule:ApplySettings() end end
+    tree.panels["schedule"] = {
+        title = L["SCHEDULE_TITLE"], moduleEnableKey = "profile.modules.Schedule",
+        settings = {
+            {type="header", label=L["SCHEDULE_TITLE"], isFirst=true},
+            {type="toggle", key="profile.modules.Schedule", label=L["MODULE_ENABLED"], isModuleToggle=true,
+                onChange=function(value)
+                    local mod=ns.Schedule
+                    if value then mod:OnEnable() else mod:OnDisable() end
+                    mod.enabled=value == true
+                end},
+            {type="button", label=L["SCHEDULE_OPEN"], onClick=function() ns.Schedule:ToggleWindow() end},
+            {type="toggle", key="profile.Schedule.showLockouts", label=L["SCHEDULE_SHOW_LOCKOUTS"], onChange=RefreshSchedule},
+            {type="toggle", key="profile.Schedule.showHolidays", label=L["SCHEDULE_SHOW_HOLIDAYS"], onChange=RefreshSchedule},
+            {type="toggle", key="profile.Schedule.showReset", label=L["SCHEDULE_SHOW_RESET"], onChange=RefreshSchedule},
+            {type="slider", key="profile.Schedule.staleDays", label=L["SCHEDULE_STALE_DAYS"], min=1, max=30, step=1, onChange=RefreshSchedule},
+            {type="button", label=L["SCHEDULE_DELETE_ALL"], onClick=function() ns.Schedule:OnInitialize(); ns.Schedule:DeleteCache() end},
         },
     }
 
