@@ -144,8 +144,12 @@ function Schedule:ReadCalendar()
                     end
                 elseif kind == "HOLIDAY" then
                     local holiday = Read(C_Calendar.GetHolidayInfo, offset + relative, day, index)
-                    if not Plain(holiday, "table") or not ValidDate(holiday.startTime) or not ValidDate(holiday.endTime) then return nil end
+                    if not Plain(holiday, "table") then return nil end
                     local start, finish = holiday.startTime, holiday.endTime
+                    -- [12.0.1] 축제 상세의 날짜는 선택값이므로 생략 시 일정 목록의 날짜를 쓴다.
+                    if not ns.IsSecretValue(start) and start == nil then start = event.startTime end
+                    if not ns.IsSecretValue(finish) and finish == nil then finish = event.endTime end
+                    if not ValidDate(start) or not ValidDate(finish) then return nil end
                     local first, last = self:DayNumber(start.year, start.month, start.monthDay), self:DayNumber(finish.year, finish.month, finish.monthDay)
                     local name = Text(holiday.name) or title
                     if not name then return nil end

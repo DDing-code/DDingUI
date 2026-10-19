@@ -59,7 +59,9 @@ def schedule_runtime(window=False, locale="koKR"):
             if badEvent then return badEvent end
             if index==1 then return {eventID="100",title="길드 신화 키식스 1~4넴",calendarType="GUILD_EVENT",inviteStatus=1,
                 eventType=0,modStatus="",startTime={year=2026,month=10,monthDay=22,hour=20,minute=30}} end
-            return {eventID="101",title="할로윈 축제",calendarType="HOLIDAY"}
+            return {eventID="101",title="할로윈 축제",calendarType="HOLIDAY",
+                startTime={year=2026,month=10,monthDay=18,hour=10,minute=0},
+                endTime={year=2026,month=11,monthDay=1,hour=10,minute=0}}
         end
         function C_Calendar.GetHolidayInfo()
             return {name="할로윈 축제",texture=123,startTime={year=2026,month=10,monthDay=18},endTime={year=2026,month=11,monthDay=1}}
@@ -207,6 +209,66 @@ def test_incomplete_calendar_retries_failure_and_disabled_rules():
         assert(S.cache.characters["띵띵-아즈샤라"]==before)
         S:OnDisable(); calendarDisabled=true; S:OnEnable(); assert(S.unavailable)
         local reads=calendarReads; S:RequestRefresh(); ExpireTimers(); assert(calendarReads==reads)
+    ''')
+
+
+def test_optional_holiday_dates_do_not_fail_calendar_opened_from_minimap():
+    lua = schedule_runtime(window=True)
+    load_minimap_libraries(lua)
+    lua.execute('''
+        local holidayInfo=C_Calendar.GetHolidayInfo
+        for _,missing in ipairs({"startTime","endTime","both"}) do
+            C_Calendar.GetHolidayInfo=function(...)
+                local info=holidayInfo(...)
+                if missing~="endTime" then info.startTime=nil end
+                if missing~="startTime" then info.endTime=nil end
+                return info
+            end
+            S:ShowMinimapButton(); Emit("PLAYER_LOGIN")
+            local button=S.minimapIcon:GetMinimapButton("DDingUI_Toolkit_Schedule")
+            if S.frame then S.frame:Hide() end
+            button:Fire("OnClick","LeftButton"); Advance(1)
+            Emit("LOADING_SCREEN_DISABLED"); Emit("CALENDAR_UPDATE_EVENT_LIST")
+            for i=1,10 do ExpireTimers() end
+            assert(not S.failed and S.cache.characters["띵띵-아즈샤라"], "축제의 선택 날짜 누락으로 전체 조회가 실패하면 안 된다")
+            local holidays=S.cache.common.holidays
+            assert(#holidays==1 and holidays[1].first==S:DayNumber(2026,10,18)
+                and holidays[1].last==S:DayNumber(2026,11,1))
+            S:SelectDay(S:DayNumber(2026,10,22))
+            assert(S.frame:IsShown() and not S.frame.empty:IsShown())
+            assert(S.frame.detailRows[2].title:GetText()=="길드 신화 키식스 1~4넴")
+            assert(selectedMonth==12, "블리자드 달력 선택 월은 유지한다")
+        end
+    ''')
+
+
+def test_invalid_holiday_dates_preserve_existing_cache():
+    lua = schedule_runtime()
+    ready(lua)
+    lua.execute('''
+        local before=S.cache.characters["띵띵-아즈샤라"]
+        local common=S.cache.common
+        local holidayInfo,dayEvent=C_Calendar.GetHolidayInfo,C_Calendar.GetDayEvent
+        for _,field in ipairs({"startTime","endTime"}) do
+            for _,bad in ipairs({SECRET,{},false}) do
+                C_Calendar.GetHolidayInfo=function(...)
+                    local info=holidayInfo(...); info[field]=bad; return info
+                end
+                assert(not S:Refresh() and S.cache.characters["띵띵-아즈샤라"]==before and S.cache.common==common)
+                C_Calendar.GetHolidayInfo=function(...)
+                    local info=holidayInfo(...); info[field]=nil; return info
+                end
+                C_Calendar.GetDayEvent=function(...)
+                    local event=dayEvent(...)
+                    if event.calendarType=="HOLIDAY" then event[field]=bad end
+                    return event
+                end
+                assert(not S:Refresh() and S.cache.characters["띵띵-아즈샤라"]==before and S.cache.common==common)
+                C_Calendar.GetDayEvent=dayEvent
+            end
+        end
+        C_Calendar.GetHolidayInfo=holidayInfo
+        assert(S:Refresh())
     ''')
 
 
