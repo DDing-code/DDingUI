@@ -1,5 +1,21 @@
 # DDingUI RaidHelper Changelog
 
+## 261020
+
+2026-10-20
+
+Scope: Changes after the 2.1.3 release commit 4431a9b.
+
+### 한국어
+
+- 12.1.5 키식스의 영웅·신화 전투 자료를 추가했습니다. 피해 흐름, 주요 기믹, 전문화별 쿨기 시점을 타임라인에서 확인할 수 있습니다.
+- 12.1.5 공격대의 영웅 10개·신화 10개, 총 20개 보스 모델을 10월 19일 공개 전투 기록으로 갱신했습니다. 공개 표본이 적은 신화 보스 한 모델의 시점은 참고값으로 확인해 주세요.
+
+### English
+
+- Added Heroic and Mythic Kith'ix encounter data for patch 12.1.5, including damage patterns, major mechanics, and specialization-specific cooldown timings on the timeline.
+- Refreshed all 20 raid models (10 Heroic and 10 Mythic) from public combat logs dated October 19. Timing for one Mythic model with limited public samples should be treated as provisional.
+
 ## 2.1.3
 
 2026-10-15
