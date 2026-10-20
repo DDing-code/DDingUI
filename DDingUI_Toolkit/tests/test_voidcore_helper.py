@@ -311,12 +311,18 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         function EJ_GetNumTiers() return 2 end
         function EJ_SelectTier(tier) currentTier = tier end
         function EJ_GetInstanceByIndex(index, raid)
-            if index ~= 1 or not raid then return nil end
-            return currentTier == 2 and 1324 or 1322
+            if not raid then return nil end
+            if currentTier == 2 then
+                if index == 1 then return 1320 end
+                if index == 2 then return 1324 end
+            elseif index == 1 then
+                return 1322
+            end
         end
         function EJ_GetLootFilter() return filterClass, filterSpec end
         function EJ_SelectInstance(id)
-            assert(id ~= 1324 or currentTier == 2, "new raid requires its journal tier")
+            assert((id ~= 1320 and id ~= 1324) or currentTier == 2,
+                "new raids require their journal tier")
             currentInstance, difficulty = id, 1
             notify("EJ_LOOT_DATA_RECIEVED")
         end
@@ -326,7 +332,8 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
                 if currentInstance ~= 1324 then return nil end
                 return "키식스", nil, id, nil, nil, 1324
             end
-            return "Ula'tek", nil, id, nil, nil, 1322
+            -- The new raid's encounter metadata can be cold before selecting its instance.
+            return nil
         end
         function EJ_GetEncounterInfoByIndex(index)
             if currentInstance == 1324 and index == 1 then
@@ -350,8 +357,9 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         function EJ_IsLootListOutOfDate() return outdated end
         expectedSpec = 256
         function EJ_GetNumLoot()
-            local raid = currentEncounter == 2895 or currentEncounter == 3514
-            assert(currentInstance == (currentEncounter == 3514 and 1324 or 1322)
+            local raid = currentInstance == 1320 or currentInstance == 1324
+            assert(currentInstance == (currentEncounter == 3514 and 1324
+                or currentEncounter and 1320 or 1322)
                 and difficulty == (raid and 16 or 23), "select instance before difficulty")
             assert(filterClass == 5 and filterSpec == expectedSpec, "keep the selected spec filter")
             assert(slotFilter == 0, "read all equipment slots")
@@ -486,4 +494,13 @@ def test_loot_recovers_from_delayed_data_without_losing_filters_or_targets():
         rows, err, loading = mod:GetSourceLoot(286019, 257)
         assert(not err and not loading and #rows == 2, "Kith'ix must use its own raid journal encounter")
         checkRestored()
+
+        mod.lootCache = nil
+        for _, sourceItemID in ipairs({ 278285, 278283, 278286, 278287,
+            278288, 278289, 278290, 278284 }) do
+            rows, err, loading = mod:GetSourceLoot(sourceItemID, 257)
+            assert(not err and not loading and #rows == 2,
+                "Venomous Abyss loot must load with cold encounter metadata: " .. sourceItemID)
+            checkRestored()
+        end
     ''')
