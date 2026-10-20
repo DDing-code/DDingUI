@@ -1,5 +1,24 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.4.1
+
+Release date: 2026-10-20
+Scope: Changes after the 2.2.3.3 release commit bae76ed.
+
+### 한국어
+
+- **일정 달력:** 접속한 캐릭터들의 개인·길드·커뮤니티 일정과 축제·주간 초기화를 한 달 화면에서 확인할 수 있습니다. 편의 기능에서 켜고 `/ddt schedule` 또는 전용 미니맵 버튼으로 엽니다.
+- **달력 표시:** 캐릭터별 표시와 창 위치·크기를 조절할 수 있습니다. 일정이 많은 날과 6주 달력에서 내용이 겹치지 않도록 정리하고, 게임 글꼴에 없는 초기화 기호를 제거했습니다.
+- **축제 조회:** 일부 축제에 시작·종료 날짜가 없어 일정 전체를 불러오지 못하던 문제를 수정했습니다.
+- **공허핵 도우미:** 맹독 심연 보스의 전리품 목록이 비거나 오류가 나던 문제를 수정했습니다.
+
+### English
+
+- **Schedule calendar:** View personal, guild, and community events collected from characters you have logged in on, plus holidays and the weekly reset. Enable it under Utility, then open it with `/ddt schedule` or its minimap button.
+- **Calendar layout:** Choose visible characters and adjust the window position and scale. Fixed overlapping entries on busy days and six-week months, and removed a reset symbol missing from the game font.
+- **Holiday loading:** Fixed a missing holiday start or end date preventing the calendar from loading all events.
+- **Voidcore Helper:** Fixed empty or failed loot lists for Venomous Abyss bosses.
+
 ## 2.2.4
 
 Release date: 2026-10-20
