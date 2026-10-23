@@ -330,7 +330,7 @@ local function FindVoidcorePrompt()
     return nil
 end
 
-local function ExtractLootEntries(prompt, specID)
+local function ExtractLootEntries(prompt, specID, trace)
     if not C_TooltipInfo or not C_TooltipInfo.GetItemByID then return nil end
 
     local ok, data
@@ -373,6 +373,10 @@ local function ExtractLootEntries(prompt, specID)
                 local isLootable, itemDataLoading = false, false
                 if itemID then
                     isLootable, itemDataLoading = IsBISLootItem(itemID, specID, hyperlink)
+                end
+                if trace and #trace.rows < 40 then
+                    trace.rows[#trace.rows + 1] = string.format("%s / id=%s / eligible=%s / loading=%s",
+                        plainName:sub(1, 200), tostring(itemID), tostring(isLootable), tostring(itemDataLoading))
                 end
                 if itemDataLoading then loading = true end
                 if isLootable and not seen[itemID] then
@@ -1033,9 +1037,9 @@ function VoidcoreHelper:IsGuardActive()
     return self.sessionGuard == true
 end
 
-local function AnalyzePromptTargets(self, prompt, specID)
+local function AnalyzePromptTargets(self, prompt, specID, trace)
     local targetIDs, targetNames, targetDataLoading = self:GetTargetSets(specID)
-    local lootEntries, lootDataLoading = ExtractLootEntries(prompt, specID)
+    local lootEntries, lootDataLoading = ExtractLootEntries(prompt, specID, trace)
     local targetCount = 0
     if lootEntries then
         for _, entry in ipairs(lootEntries) do
@@ -1060,44 +1064,75 @@ local function GetStoredSourceTargetState(self, specID, sourceItemID)
     return false, complete
 end
 
+-- [REFACTOR] Keep decision inputs in memory; SavedVariables contain no past prompt trace.
+local function FinishPromptDecision(self, spellID, trace, reason, decline)
+    trace.reason, trace.declined = reason, decline
+    self.lastDecision = trace
+    if decline then DeclineSpellConfirmationPrompt(spellID) end
+    return decline
+end
+
+function VoidcoreHelper:PrintDiagnostics()
+    local trace = self.lastDecision
+    if not trace then
+        ns.Print("공허핵 진단: 이번 접속에서 받은 보상 기록이 없습니다.")
+        return
+    end
+    ns.Print(string.format("공허핵 진단: %s / 포기=%s / 주문=%s / 출처=%s / 보상난이도=%s / 던전난이도=%s / 쐐기단수=%s / 전리품전문화=%s",
+        trace.reason, tostring(trace.declined), tostring(trace.spellID), tostring(trace.sourceItemID), tostring(trace.itemContext),
+        tostring(trace.difficultyID), tostring(trace.keyLevel), tostring(trace.specID)))
+    ns.Print(string.format("승인=%s / 출처BIS=%s / 등록BIS=%s / 읽은전리품=%s / 일치BIS=%s / 읽는중=%s",
+        tostring(trace.guard), tostring(trace.hasStoredTarget), table.concat(trace.targets, ","),
+        tostring(trace.lootCount), tostring(trace.targetCount), tostring(trace.loading)))
+    for _, row in ipairs(trace.rows) do ns.Print("보상 목록: " .. row:gsub("|", "||")) end
+end
+
 function VoidcoreHelper:TryAutoDecline(spellID, prompt)
     if not spellID or not prompt or not DeclineSpellConfirmationPrompt then return false end
+    local specID = GetCurrentSpecID()
+    local trace = { spellID = spellID, sourceItemID = prompt.sourceItemID, itemContext = prompt.itemContext,
+        difficultyID = prompt.difficultyID, keyLevel = prompt.keyLevel, specID = specID, guard = self:IsGuardActive(),
+        targets = {}, rows = {} }
+    for _, itemID in ipairs(self:GetTargets(specID, false)) do
+        if SafeNumber(itemID) then trace.targets[#trace.targets + 1] = tostring(itemID) end
+    end
     -- [REFACTOR] Reward context survives leaving the instance; entry consent only gates BIS rules.
     local context = prompt.itemContext
     if DIRECT_PASS_SOURCES[prompt.sourceItemID]
         or (context and context ~= RAID_HEROIC_CONTEXT and context ~= RAID_MYTHIC_CONTEXT
             and context ~= MYTHIC_KEYSTONE_CONTEXT) then
-        DeclineSpellConfirmationPrompt(spellID)
+        FinishPromptDecision(self, spellID, trace, "보상종류·난이도 제외", true)
         self:HideAdvisor()
         return true
     end
-    if not context then return false end
-    if not self:IsGuardActive() then return false end
+    if not context then return FinishPromptDecision(self, spellID, trace, "난이도 확인 불가", false) end
+    if not trace.guard then return FinishPromptDecision(self, spellID, trace, "자동 포기 미승인", false) end
 
     local _, sourceKind = GetSourceName(prompt.sourceItemID)
     local eligible = IsEligiblePrompt(prompt, sourceKind)
     if not eligible then
-        DeclineSpellConfirmationPrompt(spellID)
-        return true
+        return FinishPromptDecision(self, spellID, trace, "추천 난이도 미달", true)
     end
 
-    local specID = GetCurrentSpecID()
     local hasStoredTarget, sourceMapComplete = GetStoredSourceTargetState(self, specID, prompt.sourceItemID)
+    trace.hasStoredTarget = hasStoredTarget
     if SOURCE_BY_ITEM[prompt.sourceItemID] and sourceMapComplete and not hasStoredTarget then
-        DeclineSpellConfirmationPrompt(spellID)
-        return true
+        return FinishPromptDecision(self, spellID, trace, "다른 출처의 BIS만 등록됨", true)
     end
 
-    local lootEntries, configuredTargetCount, targetCount, targetDataLoading = AnalyzePromptTargets(self, prompt, specID)
+    local lootEntries, configuredTargetCount, targetCount, targetDataLoading = AnalyzePromptTargets(self, prompt, specID, trace)
+    trace.lootCount, trace.targetCount, trace.loading = lootEntries and #lootEntries, targetCount, targetDataLoading
     if configuredTargetCount == 0 then
-        DeclineSpellConfirmationPrompt(spellID)
-        return true
+        return FinishPromptDecision(self, spellID, trace, "전리품 전문화의 BIS 미등록", true)
     end
     if lootEntries and #lootEntries > 0 and not targetDataLoading and targetCount == 0 then
-        DeclineSpellConfirmationPrompt(spellID)
-        return true
+        -- shortcut: Keep checked sources manual on mismatch until live diagnostics establish why no BIS matched.
+        if hasStoredTarget then
+            return FinishPromptDecision(self, spellID, trace, "체크된 출처와 보상 목록 불일치·포기 보류", false)
+        end
+        return FinishPromptDecision(self, spellID, trace, "남은 전리품에 BIS 없음", true)
     end
-    return false
+    return FinishPromptDecision(self, spellID, trace, targetCount > 0 and "남은 BIS 확인" or "전리품 확인 대기", false)
 end
 
 function VoidcoreHelper:RenderPrompt(prompt)
@@ -1242,7 +1277,8 @@ function VoidcoreHelper:EvaluateInstance()
     if self.currentInstanceKey == key then return end
 
     self.currentInstanceKey = key
-    self.sessionGuard = db.entryPrompt and nil or db.guardNonTargets == true
+    self.sessionGuard = nil
+    if not db.entryPrompt then self.sessionGuard = db.guardNonTargets == true end
     ns.UI:HideConfirmation(CONFIRMATION_KEY)
     if db.entryPrompt and db.guardNonTargets then
         ns.UI:ShowConfirmation(CONFIRMATION_KEY, {
@@ -1330,7 +1366,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     local self = activeModule
     if not self then return end
     if event == "SPELL_CONFIRMATION_PROMPT" then
-        local spellID, _, _, _, currencyID, _, _, sourceItemID, itemContext, keyLevel = ...
+        local spellID, _, _, _, currencyID, _, difficultyID, sourceItemID, itemContext, keyLevel = ...
         spellID = SafeNumber(spellID)
         currencyID = SafeNumber(currencyID)
         sourceItemID = SafeNumber(sourceItemID)
@@ -1339,6 +1375,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
                 currencyID = currencyID,
                 sourceItemID = sourceItemID,
                 itemContext = SafeNumber(itemContext),
+                difficultyID = SafeNumber(difficultyID),
                 keyLevel = SafeNumber(keyLevel) or 0,
             }
             if self:TryAutoDecline(spellID, prompt) then return end

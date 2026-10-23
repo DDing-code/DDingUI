@@ -52,6 +52,9 @@ local function SlashHandler(msg)
     elseif command == "schedule" or command == "cal" or command == "일정" then -- [REFACTOR]
         ns.Schedule:ToggleWindow()
 
+    elseif command == "공허핵진단" or command == "voidcoredebug" then -- [REFACTOR]
+        ns.VoidcoreHelper:PrintDiagnostics()
+
     elseif command == "trail" then
         -- CursorTrail 탭으로 설정 창 열기
         arg = arg:lower()

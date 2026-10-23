@@ -47,8 +47,8 @@ def test_voidcore_helper_is_wired_with_bis_settings_and_safe_prompt_reads() -> N
     assert 'pcall(C_Item.GetItemSpecInfo' not in module
     assert 'if type(isEligible) ~= "boolean" then' in module
     assert 'if not itemDataLoading and #items > 0 then self.lootCache[cacheKey] = items end' in module
-    assert 'local function ExtractLootEntries(prompt, specID)' in module
-    assert 'local lootEntries, lootDataLoading = ExtractLootEntries(prompt, specID)' in module
+    assert 'local function ExtractLootEntries(prompt, specID, trace)' in module
+    assert 'local lootEntries, lootDataLoading = ExtractLootEntries(prompt, specID, trace)' in module
     assert 'targetDataLoading or lootDataLoading' in module
     assert 'slot ~= ""' not in module
     assert 'function VoidcoreHelper:ToggleTarget(specID, itemID, sourceItemID)' in module
@@ -183,10 +183,65 @@ def test_outside_content_auto_pass_bypasses_consent_and_preserves_bis_guards():
         prompt(286019, 1, 6) -- The new boss is a known non-BIS source.
         db.bisSourcesBySpec["257"]["123"] = 286019
         prompt(286019, 0, 6) -- Keep the configured Kith'ix source while loot loads.
+        db.bisSourcesBySpec["257"]["123"] = 278290
+        C_Item.GetItemInfoInstant = function(id) return id, nil, nil, "INVTYPE_TRINKET", nil, 4, 0 end
+        C_Item.DoesItemContainSpec = function() return true end
+        C_TooltipInfo = { GetItemByID = function()
+            return { lines = { { leftText = "- Other", itemID = 999 } } }
+        end }
+        function UnitClass() return "Priest", "Priest", 5 end
+        prompt(278290, 0, 6) -- Hold when the reward list contradicts the checked source.
+        assert(mod.lastDecision.hasStoredTarget and mod.lastDecision.targetCount == 0)
+        assert(mod.lastDecision.specID == 257 and mod.lastDecision.lootCount == 1)
+        assert(#mod.lastDecision.rows == 1 and not mod.lastDecision.declined)
         prompt(279618, 1, 16, 10) -- Known non-BIS source still passes.
         db.bisSourcesBySpec["257"]["123"] = 279618
         prompt(279618, 0, 16, 10)
         prompt(279618, 1, 16, 9)
+
+        -- All four Holy Coiled Altar items are checked: every nonempty subset must match.
+        local targets = { 268243, 268253, 268255, 270169 }
+        db.bisBySpec["257"], db.bisSourcesBySpec["257"] = targets, {}
+        for _, id in ipairs(targets) do db.bisSourcesBySpec["257"][tostring(id)] = 278290 end
+        C_Item.GetItemInfo = function(id) return "Item " .. id end
+        C_SpecializationInfo = {
+            GetSpecialization = function() return 2 end,
+            GetSpecializationInfo = function() return 257 end,
+        }
+        local lines = {}
+        C_TooltipInfo.GetItemByID = function() return { lines = lines } end
+        for _, lootSpec in ipairs({ 0, 257 }) do
+            GetLootSpecialization = function() return lootSpec end
+            for mask = 1, 15 do
+                lines = {}
+                for index, id in ipairs(targets) do
+                    if math.floor(mask / 2^(index - 1)) % 2 == 1 then
+                        lines[#lines + 1] = { leftText = "- Item " .. id, itemID = id }
+                    end
+                end
+                prompt(278290, 0, 6)
+                assert(mod.lastDecision.reason == "남은 BIS 확인")
+                assert(mod.lastDecision.targetCount == #lines)
+            end
+        end
+        lines = {}
+        prompt(278290, 0, 6)
+        assert(mod.lastDecision.reason == "전리품 확인 대기")
+        prompt(278290, 1, 0) -- Context rejection occurs before the stored BIS check.
+        assert(mod.lastDecision.reason == "보상종류·난이도 제외")
+        assert(mod.lastDecision.hasStoredTarget == nil)
+        lines = { { leftText = "- Other | name", itemID = 999 } }
+        prompt(278290, 0, 6)
+        assert(mod.lastDecision.reason == "체크된 출처와 보상 목록 불일치·포기 보류")
+        local output = {}
+        ns.Print = function(message) output[#output + 1] = message end
+        mod:PrintDiagnostics()
+        assert(#output == 3 and output[1]:find("전리품전문화=257", 1, true))
+        assert(output[2]:find("일치BIS=0", 1, true))
+        assert(output[3]:find("other || name", 1, true))
+        mod.lastDecision = nil
+        mod:PrintDiagnostics()
+        assert(output[4]:find("기록이 없습니다", 1, true))
 
         mod:OnDisable()
         prompt(279284, 0)
@@ -246,6 +301,7 @@ def test_entry_confirmation_only_runs_in_heroic_mythic_raids_and_keystones():
             local before = confirmations
             eventFrame.onEvent(eventFrame, "PLAYER_ENTERING_WORLD")
             assert(confirmations == before + 1 and shown)
+            assert(not mod:IsGuardActive(), "waiting for confirmation must not enable auto-decline")
             confirmation.onAccept()
             assert(mod:IsGuardActive())
             confirmation.onCancel()
