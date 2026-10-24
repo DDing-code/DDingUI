@@ -243,6 +243,23 @@ def test_outside_content_auto_pass_bypasses_consent_and_preserves_bis_guards():
         mod:PrintDiagnostics()
         assert(output[4]:find("기록이 없습니다", 1, true))
 
+        -- BIS-based declines explain themselves in chat at once; policy declines stay silent.
+        output = {}
+        mod.sessionGuard = true
+        prompt(268969, 1, 0, 0, 3418) -- Delve reward: declined by policy, no notice.
+        prompt(278290, 1, 3) -- Normal raid: declined by policy, no notice.
+        assert(#output == 0, output[1])
+        db.bisBySpec["257"], db.bisSourcesBySpec["257"] = {}, {}
+        prompt(278290, 1, 6)
+        assert(#output == 1 and output[1]:find("Voidcore auto-declined", 1, true), output[1])
+        assert(output[1]:find("no BIS checked for this loot specialization", 1, true), output[1])
+        db.bisBySpec["257"], db.bisSourcesBySpec["257"] = { 123 }, { ["123"] = 278284 }
+        prompt(278290, 1, 6)
+        assert(#output == 2 and output[2]:find("no checked BIS item drops here", 1, true), output[2])
+        assert(output[2]:find("voidcoredebug", 1, true))
+        prompt(279618, 1, 16, 9)
+        assert(#output == 3 and output[3]:find("below the recommended difficulty", 1, true), output[3])
+
         mod:OnDisable()
         prompt(279284, 0)
         prompt(280131, 0)

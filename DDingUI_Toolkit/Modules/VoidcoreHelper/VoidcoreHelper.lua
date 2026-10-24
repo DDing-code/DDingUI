@@ -1064,11 +1064,32 @@ local function GetStoredSourceTargetState(self, specID, sourceItemID)
     return false, complete
 end
 
+-- [REFACTOR] BIS-based declines say why in chat at once; the trace is lost on reload.
+-- Delve/Prey/difficulty exclusions stay silent (they are declined by policy, not by BIS).
+local DECLINE_NOTICE_KEYS = {
+    ["추천 난이도 미달"] = { "VCH_DECLINE_LOW_LEVEL", "below the recommended difficulty" },
+    ["다른 출처의 BIS만 등록됨"] = { "VCH_DECLINE_OTHER_SOURCE", "no checked BIS item drops here" },
+    ["전리품 전문화의 BIS 미등록"] = { "VCH_DECLINE_NO_TARGETS", "no BIS checked for this loot specialization" },
+    ["남은 전리품에 BIS 없음"] = { "VCH_DECLINE_NO_BIS_LEFT", "no BIS left in the reward list" },
+}
+
+local function PrintDeclineNotice(trace)
+    local key = DECLINE_NOTICE_KEYS[trace.reason]
+    if not key or not ns.Print then return end
+    local sourceName = GetSourceName(trace.sourceItemID)
+    local spec = GetSpecInfo(trace.specID)
+    ns.Print(string.format(T("VCH_DECLINE_NOTICE", "Voidcore auto-declined: %s - %s (loot specialization: %s). Details: /ddt voidcoredebug"),
+        sourceName, T(key[1], key[2]), spec.name))
+end
+
 -- [REFACTOR] Keep decision inputs in memory; SavedVariables contain no past prompt trace.
 local function FinishPromptDecision(self, spellID, trace, reason, decline)
     trace.reason, trace.declined = reason, decline
     self.lastDecision = trace
-    if decline then DeclineSpellConfirmationPrompt(spellID) end
+    if decline then
+        DeclineSpellConfirmationPrompt(spellID)
+        PrintDeclineNotice(trace)
+    end
     return decline
 end
 
