@@ -1,5 +1,24 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.4.2
+
+Release date: 2026-10-24
+Scope: Changes after the 2.2.4.1 release commit 80d8a2c.
+
+### 한국어
+
+- **공허핵 도우미:** 영웅·신화 공격대 보상을 BIS 확인 없이 자동 포기하던 문제를 수정했습니다. 게임이 영웅·신화 공격대와 쐐기 보상에 쓰는 새 보상 난이도 번호를 모두 인정하고, 보상 창에 함께 오는 던전 난이도를 우선 확인합니다.
+- **공허핵 도우미:** 인스턴스 진입 때 자동 포기를 승인하지 않았으면 BIS 기준 자동 포기를 하지 않도록 수정했습니다.
+- **공허핵 도우미:** BIS로 체크한 우두머리의 보상 목록에서 BIS를 찾지 못하면 자동 포기하지 않고 직접 고르도록 남겨 둡니다.
+- **공허핵 도우미:** BIS 기준으로 자동 포기하면 획득처·이유·전리품 전문화를 채팅에 한 줄로 알려 줍니다. `/ddt 공허핵진단`으로 마지막 판단을 자세히 볼 수 있습니다.
+
+### English
+
+- **Voidcore Helper:** Fixed Heroic and Mythic raid rewards being auto-declined without checking BIS. All current reward difficulty numbers for Heroic/Mythic raids and Mythic Keystones are recognized, and the dungeon difficulty sent with the offer is checked first.
+- **Voidcore Helper:** BIS-based auto-decline no longer runs unless you approved it when entering the instance.
+- **Voidcore Helper:** When no BIS item can be found in the reward list of a boss you checked, the offer is left for you to decide instead of being declined.
+- **Voidcore Helper:** A BIS-based auto-decline now prints one chat line with the source, the reason and your loot specialization. `/ddt voidcoredebug` shows the last decision in detail.
+
 ## 2.2.4.1
 
 Release date: 2026-10-20
