@@ -243,6 +243,38 @@ def test_outside_content_auto_pass_bypasses_consent_and_preserves_bis_guards():
         mod:PrintDiagnostics()
         assert(output[4]:find("기록이 없습니다", 1, true))
 
+        -- 2026-10-24: Heroic raid rewards arrive with extended context numbers (95 = RaidHeroicExtended_3).
+        function promptAt(source, expected, difficulty, context, level)
+            local before = declines
+            eventFrame.onEvent(eventFrame, "SPELL_CONFIRMATION_PROMPT",
+                777, 0, "Reward", 60, 3418, 1, difficulty, source, context, level or 0)
+            assert(declines - before == expected, "unexpected auto-pass for " .. tostring(source) .. "/" .. tostring(context))
+        end
+        mod.sessionGuard = true
+        db.bisBySpec["257"], db.bisSourcesBySpec["257"] = { 123 }, { ["123"] = 286019 }
+        lines = {}
+        for _, context in ipairs({ 5, 84, 91, 95, 6, 85, 92, 96 }) do
+            promptAt(286019, 0, 15, context, 3) -- Checked Kith'ix source in Heroic/Mythic is kept.
+            assert(mod.lastDecision.reason ~= "보상종류·난이도 제외", tostring(context))
+            promptAt(286019, 0, 0, context, 3) -- Late prompt outside the raid: the context alone is enough.
+        end
+        promptAt(286019, 0, 16, 999, 3) -- An unknown future context in a Mythic raid trusts the difficulty.
+        promptAt(286019, 0, 15, nil, 3) -- Missing context with a known Heroic difficulty keeps BIS rules.
+        assert(mod.lastDecision.reason ~= "난이도 확인 불가")
+        promptAt(278287, 1, 15, 95, 3) -- Vashnik has no BIS for this spec: declined by the BIS rule, not policy.
+        assert(mod.lastDecision.reason == "다른 출처의 BIS만 등록됨")
+        for _, context in ipairs({ 3, 4, 82, 83, 89, 90, 93, 94 }) do
+            promptAt(286019, 1, 0, context) -- Normal/LFR raid contexts are still declined by policy.
+            assert(mod.lastDecision.reason == "보상종류·난이도 제외")
+        end
+        promptAt(286019, 1, 14, 3) -- Normal raid difficulty.
+        for _, context in ipairs({ 33, 34, 35, 87 }) do
+            promptAt(279618, 1, 0, context, 12) -- Other Mythic Keystone contexts count as keystones,
+            assert(mod.lastDecision.reason == "다른 출처의 BIS만 등록됨", tostring(context)) -- so BIS rules decide.
+        end
+        promptAt(279618, 1, 8, 999, 9) -- Keystone difficulty below +10 is still declined.
+        assert(mod.lastDecision.reason == "추천 난이도 미달")
+
         -- BIS-based declines explain themselves in chat at once; policy declines stay silent.
         output = {}
         mod.sessionGuard = true

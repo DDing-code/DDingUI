@@ -15,9 +15,27 @@ ns.VoidcoreHelper = VoidcoreHelper
 
 local CONFIRMATION_KEY = "voidcore-instance-guard"
 local MIN_KEYSTONE_LEVEL = 10
-local RAID_HEROIC_CONTEXT = 5
-local RAID_MYTHIC_CONTEXT = 6
-local MYTHIC_KEYSTONE_CONTEXT = 16
+-- [REFACTOR] Enum.ItemCreationContext has several numbers per difficulty (warcraft.wiki.gg).
+-- 2026-10-24: Heroic Venomous Abyss rewards arrived as 95 (RaidHeroicExtended_3) and were declined.
+local RAID_CONTEXTS = {
+    [5] = true, [84] = true, [91] = true, [95] = true,  -- RaidHeroic, RaidHeroicExtended(_2/_3)
+    [6] = true, [85] = true, [92] = true, [96] = true,  -- RaidMythic, RaidMythicExtended(_2/_3)
+}
+local KEYSTONE_CONTEXTS = {
+    [16] = true, [33] = true, [34] = true, [35] = true, [87] = true, -- ChallengeMode_1/2/3/Jackpot/4
+}
+-- The prompt's currentDifficulty wins over the context number when it is known.
+local RAID_DIFFICULTIES = { [15] = true, [16] = true, [233] = true }
+local KEYSTONE_DIFFICULTY = 8
+
+--- "raid" | "dungeon" | nil (not Heroic/Mythic raid or Mythic Keystone).
+local function GetPromptContentKind(prompt)
+    if RAID_DIFFICULTIES[prompt.difficultyID] then return "raid" end
+    if prompt.difficultyID == KEYSTONE_DIFFICULTY then return "dungeon" end
+    if RAID_CONTEXTS[prompt.itemContext] then return "raid" end
+    if KEYSTONE_CONTEXTS[prompt.itemContext] then return "dungeon" end
+    return nil
+end
 local MAX_LOOT_ROWS = 12
 
 local KNOWN_VOIDCORE_CURRENCIES = {
@@ -321,6 +339,7 @@ local function FindVoidcorePrompt()
                         currencyID = currencyID,
                         sourceItemID = sourceItemID,
                         itemContext = SafeNumber(entry.itemContext) or 0,
+                        difficultyID = SafeNumber(entry.currentDifficulty),
                         keyLevel = SafeNumber(entry.treasureContextLevel) or 0,
                     }
                 end
@@ -334,7 +353,7 @@ local function ExtractLootEntries(prompt, specID, trace)
     if not C_TooltipInfo or not C_TooltipInfo.GetItemByID then return nil end
 
     local ok, data
-    if prompt.itemContext == MYTHIC_KEYSTONE_CONTEXT then
+    if GetPromptContentKind(prompt) == "dungeon" then
         ok, data = pcall(C_TooltipInfo.GetItemByID, prompt.sourceItemID, nil, prompt.itemContext, prompt.keyLevel)
     else
         ok, data = pcall(C_TooltipInfo.GetItemByID, prompt.sourceItemID, nil, prompt.itemContext)
@@ -394,7 +413,8 @@ local function ExtractLootEntries(prompt, specID, trace)
 end
 
 local function IsEligiblePrompt(prompt, sourceKind)
-    if prompt.itemContext == MYTHIC_KEYSTONE_CONTEXT then
+    local contentKind = GetPromptContentKind(prompt)
+    if contentKind == "dungeon" then
         local keyLevel = prompt.keyLevel
         if keyLevel < 1 and C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo then
             local ok, activeLevel = pcall(C_ChallengeMode.GetActiveKeystoneInfo)
@@ -402,7 +422,7 @@ local function IsEligiblePrompt(prompt, sourceKind)
         end
         return keyLevel >= MIN_KEYSTONE_LEVEL, "dungeon", keyLevel
     end
-    if prompt.itemContext == RAID_HEROIC_CONTEXT or prompt.itemContext == RAID_MYTHIC_CONTEXT then
+    if contentKind == "raid" then
         return true, "raid", 0
     end
     return false, sourceKind, prompt.keyLevel
@@ -1120,13 +1140,14 @@ function VoidcoreHelper:TryAutoDecline(spellID, prompt)
     -- [REFACTOR] Reward context survives leaving the instance; entry consent only gates BIS rules.
     local context = prompt.itemContext
     if DIRECT_PASS_SOURCES[prompt.sourceItemID]
-        or (context and context ~= RAID_HEROIC_CONTEXT and context ~= RAID_MYTHIC_CONTEXT
-            and context ~= MYTHIC_KEYSTONE_CONTEXT) then
+        or (context and not GetPromptContentKind(prompt)) then
         FinishPromptDecision(self, spellID, trace, "보상종류·난이도 제외", true)
         self:HideAdvisor()
         return true
     end
-    if not context then return FinishPromptDecision(self, spellID, trace, "난이도 확인 불가", false) end
+    if not context and not GetPromptContentKind(prompt) then
+        return FinishPromptDecision(self, spellID, trace, "난이도 확인 불가", false)
+    end
     if not trace.guard then return FinishPromptDecision(self, spellID, trace, "자동 포기 미승인", false) end
 
     local _, sourceKind = GetSourceName(prompt.sourceItemID)
