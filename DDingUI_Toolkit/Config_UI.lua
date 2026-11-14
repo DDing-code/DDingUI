@@ -29,6 +29,9 @@ local settingsPanel     -- Lib.CreateSettingsPanel 결과
 local panelContainers = {} -- key → Frame
 local activePanel       -- 현재 선택된 패널 키
 local panelSectionState = {}
+local panelGroupState = {} -- [REFACTOR] Selection is UI state, never a saved setting.
+local searchIndex
+local SetPanelModuleEnabled
 local activeDetailPreview
 local detailPreviewRefreshTimer
 local DETAIL_PREVIEW_CONTEXT = { source = "config" }
@@ -543,7 +546,7 @@ local function BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     end
 
     for _, setting in ipairs(panelDef.settings or {}) do
-        local skipWorkspaceSetting = not IsSettingVisible(setting)
+        local skipWorkspaceSetting = setting.barStrip or not IsSettingVisible(setting)
             or (usesWorkspaceHeader and (setting.isModuleToggle or (setting.type == "header" and setting.isFirst)))
 
         if not skipWorkspaceSetting and not IsRedundantPreviewButton(setting, panelKey) then
@@ -622,9 +625,35 @@ end
 ------------------------------------------------------
 -- 패널 렌더러
 ------------------------------------------------------
+-- [STYLE] Card cells put the label above the control so two columns fit side by side.
+local function StackControl(w, kind)
+    if kind == "slider" and w.track then
+        w:SetHeight(52)
+        w.label:ClearAllPoints()
+        w.label:SetPoint("TOPLEFT", w, "TOPLEFT", 0, -2)
+        w.label:SetPoint("TOPRIGHT", w, "TOPRIGHT", 0, -2)
+        w.valueBox:ClearAllPoints()
+        w.valueBox:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", 0, 2)
+        w.track:ClearAllPoints()
+        w.track:SetPoint("LEFT", w, "BOTTOMLEFT", 8, 14)
+        w.track:SetPoint("RIGHT", w.valueBox, "LEFT", -16, 0)
+    elseif kind == "dropdown" and w.button then
+        w:SetHeight(56)
+        w.label:ClearAllPoints()
+        w.label:SetPoint("TOPLEFT", w, "TOPLEFT", 0, -2)
+        w.label:SetPoint("TOPRIGHT", w, "TOPRIGHT", 0, -2)
+        w.button:ClearAllPoints()
+        w.button:SetPoint("BOTTOMLEFT", w, "BOTTOMLEFT", 0, 2)
+        w.button:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", 0, 2)
+        w.button:SetHeight(28)
+    end
+end
+
+local RenderSettingsCard
+
 local function RenderSettingsPanel(container, panelDef)
-    local yOff = -S.contentPad
-    local pad  = S.contentPad
+    local pad  = panelDef.inset or S.contentPad
+    local yOff = -pad
     local moduleToggleEndY = nil  -- 모듈 활성화 토글 아래 Y 오프셋 추적
     local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
 
@@ -700,6 +729,14 @@ local function RenderSettingsPanel(container, panelDef)
                 tooltip = s.desc,
                 onChange = onChangeFn,
             })
+            if s.boxLeft then
+                -- [STYLE] OmniCD-style toggle: box first, label after it.
+                w.box:ClearAllPoints()
+                w.box:SetPoint("LEFT", w, "LEFT", 0, 0)
+                w.label:ClearAllPoints()
+                w.label:SetPoint("LEFT", w.box, "RIGHT", 8, 0)
+                w.label:SetPoint("RIGHT", w, "RIGHT", 0, 0)
+            end
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
             w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - w:GetHeight()
@@ -714,12 +751,14 @@ local function RenderSettingsPanel(container, panelDef)
             w = Widgets.CreateSlider(container, ADDON_KEY, s.label or "",
                 s.min, s.max, s.step, val, {
                     tooltip = s.desc,
+                    percent = s.percent,
                     onChange = function(value)
                         ns:SetDBValue(s.key, value)
                         if s.onChange then s.onChange(value) end
                         QueueDetailPreviewRefresh()
                     end,
                 })
+            if panelDef.stacked then StackControl(w, "slider") end
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
             w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - w:GetHeight()
@@ -750,6 +789,7 @@ local function RenderSettingsPanel(container, panelDef)
                     SetValue(s, value)
                 end,
             })
+            if panelDef.stacked then StackControl(w, "dropdown") end
             w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
             w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - w:GetHeight()
@@ -865,6 +905,20 @@ local function RenderSettingsPanel(container, panelDef)
             w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - w:GetHeight()
 
+        -- [STYLE] Titled card with a two-column grid of ordinary settings.
+        elseif s.type == "card" then
+            w = RenderSettingsCard(container, s)
+            w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
+
+        -- [REFACTOR] Module-owned content participates in the existing section layout.
+        elseif s.type == "custom" and s.render then
+            w = s.render(container, s)
+            w:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
+            w:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
+            yOff = yOff - S.controlGap - w:GetHeight()
+
         -- custom: 기타 미구현 ----------------------------------
         elseif s.type == "custom" then
             local cf = MakeTextFrame(container,
@@ -873,6 +927,11 @@ local function RenderSettingsPanel(container, panelDef)
             cf:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff - S.controlGap)
             cf:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff - S.controlGap)
             yOff = yOff - S.controlGap - 20
+        end
+        -- [REFACTOR] OmniCD-style greyed options: `disabled` keeps the control visible but inactive.
+        if w and type(s.disabled) == "function" and w.SetDisabledState then
+            local ok, disabled = pcall(s.disabled)
+            if ok and disabled then w:SetDisabledState(true) end
         end
     end
 
@@ -888,12 +947,70 @@ local function RenderSettingsPanel(container, panelDef)
     end
 end
 
+-- [STYLE] Card cells reuse RenderSettingsPanel; `newRow` starts a fresh grid row.
+local CARD_INSET, CARD_GAP, CARD_TITLE = 16, 24, 30
+RenderSettingsCard = function(container, card)
+    local frame = CreateFrame("Frame", nil, container, "BackdropTemplate")
+    if Lib.MakeRounded and Lib.Radius then
+        Lib.MakeRounded(frame, Lib.Radius.row, C.bg.sidebar, C.border.default)
+    else
+        frame:SetBackdrop({ bgFile = SOLID, edgeFile = SOLID, edgeSize = 1 })
+        frame:SetBackdropColor(u(C.bg.sidebar))
+        frame:SetBackdropBorderColor(u(C.border.default))
+    end
+    local accent = Lib.GetAccent(ADDON_KEY)
+    local title = frame:CreateFontString(nil, "OVERLAY")
+    title:SetFont(F.path, F.small, "")
+    title:SetTextColor(accent[1], accent[2], accent[3], 1)
+    title:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET, -10)
+    title:SetText(card.label or "")
+
+    local rows, current = {}, nil
+    for _, child in ipairs(card.settings or {}) do
+        if IsSettingVisible(child) then
+            -- [STYLE] `fullRow` spans both columns (OmniCD color table, description lines).
+            if child.fullRow then
+                rows[#rows + 1] = { child, full = true }
+                current = nil
+            else
+                if not current or #current == 2 or child.newRow then
+                    current = {}
+                    rows[#rows + 1] = current
+                end
+                current[#current + 1] = child
+            end
+        end
+    end
+    local y = -CARD_TITLE
+    for _, row in ipairs(rows) do
+        local height = 0
+        for column, child in ipairs(row) do
+            local cell = CreateFrame("Frame", nil, frame)
+            if row.full then
+                cell:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET, y)
+                cell:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -CARD_INSET, y)
+            elseif column == 1 then
+                cell:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_INSET, y)
+                cell:SetPoint("TOPRIGHT", frame, "TOP", -CARD_GAP / 2, y)
+            else
+                cell:SetPoint("TOPLEFT", frame, "TOP", CARD_GAP / 2, y)
+                cell:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -CARD_INSET, y)
+            end
+            RenderSettingsPanel(cell, { settings = { child }, inset = 0, stacked = true })
+            height = math.max(height, cell._contentHeight or 0)
+        end
+        y = y - height - 4
+    end
+    frame:SetHeight(math.abs(y) + 12)
+    return frame
+end
+
 local function RenderSectionedPanel(container, panelDef, panelKey)
     container:SetScript("OnSizeChanged", nil)
     local usesWorkspaceHeader = settingsPanel and settingsPanel.workspace and panelDef.moduleEnableKey
     local sections = BuildPanelSections(panelDef, usesWorkspaceHeader, panelKey)
     if #sections < 2 then
-        local preview = CreateDetailPreview(container, panelKey)
+        local preview = not panelDef.compact and CreateDetailPreview(container, panelKey)
         if not preview then
             RenderSettingsPanel(container, panelDef)
             return
@@ -920,22 +1037,34 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
 
     local pad = S.contentPad
     local yOff = -pad
-    local preview = CreateDetailPreview(container, panelKey)
+    -- [REFACTOR] Group selection stays above every tab in the group's settings.
+    for _, setting in ipairs(panelDef.settings or {}) do
+        if setting.barStrip then
+            local picker = setting.render(container)
+            picker:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
+            picker:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
+            container._groupPicker = picker
+            yOff = yOff - picker:GetHeight() - 12
+        end
+    end
+    local preview = not panelDef.compact and CreateDetailPreview(container, panelKey)
     if preview then
         preview:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
         preview:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
         yOff = yOff - preview:GetHeight() - 14
     end
 
-    local sectionTitle = MakeTextFrame(
-        container,
-        LT("DETAIL_SECTION_TITLE", "Settings"),
-        C.text.highlight,
-        F.normal
-    )
-    sectionTitle:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
-    sectionTitle:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
-    yOff = yOff - 24
+    if not panelDef.compact then
+        local sectionTitle = MakeTextFrame(
+            container,
+            LT("DETAIL_SECTION_TITLE", "Settings"),
+            C.text.highlight,
+            F.normal
+        )
+        sectionTitle:SetPoint("TOPLEFT", container, "TOPLEFT", pad, yOff)
+        sectionTitle:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, yOff)
+        yOff = yOff - 24
+    end
 
     local gap = 6
     local tabs = {}
@@ -1009,7 +1138,7 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
         if width == lastWidth then return end
         lastWidth = width
         local availableWidth = math.max(width - pad * 2, 1)
-        local maxColumns = #sections == 5 and 3 or 4
+        local maxColumns = panelDef.sectionColumns or (#sections == 5 and 3 or 4)
         local columnCount = math.max(1, math.min(#sections, maxColumns,
             math.floor((availableWidth + gap) / (minTabWidth + gap))))
         local tabWidth = math.floor((availableWidth - (columnCount - 1) * gap) / columnCount)
@@ -1039,8 +1168,82 @@ local function RenderSectionedPanel(container, panelDef, panelKey)
     end
 end
 
+-- [REFACTOR] Fixed skill categories share the existing group picker.
+local function RenderGroupedPanel(container, panelDef, panelKey)
+    container:SetScript("OnSizeChanged", nil)
+    -- [STYLE] Group controls share the detail title row (OmniCD-style); fall back inside the body.
+    local header = settingsPanel and settingsPanel.workspace and settingsPanel.workspace.contentHeader
+    -- [STYLE] Leave the title row to the master switch; group controls get their own row.
+    if panelDef.moduleEnableKey then header = nil end
+    local pad, bodyTop = S.contentPad, header and 0 or 48
+    local bodies, options = {}, {}
+    container._groupBodies = bodies
+    local selected = panelGroupState[panelKey]
+    for _, key in ipairs(panelDef.groups) do
+        options[#options+1] = {text=ns.ConfigTree.panels[key].title, value=key}
+    end
+    if not (selected and ns.ConfigTree.panels[selected]) then selected = panelDef.groups[1] end
+    local function UpdateHeight()
+        local body = bodies[selected]
+        local height = bodyTop + (body and body._contentHeight or 50)
+        container._contentHeight = height
+        container:SetHeight(height)
+        if activePanel == panelKey then settingsPanel.contentChild:SetHeight(height) end
+    end
+    local function SelectGroup(key)
+        if selected ~= key then StopDetailPreview() end
+        selected, panelGroupState[panelKey] = key, key
+        if not key then UpdateHeight(); return end
+        if not bodies[key] then
+            local body = CreateFrame("Frame", nil, container)
+            body:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -bodyTop)
+            body:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, -bodyTop)
+            bodies[key] = body
+            RenderSectionedPanel(body, ns.ConfigTree.panels[key], key)
+            body:HookScript("OnSizeChanged", UpdateHeight)
+        end
+        for groupKey, body in pairs(bodies) do body:SetShown(groupKey == key) end
+        container.groupPicker:SetValue(key, true)
+        container.groupToggle:SetChecked(ns:GetDBValue(ns.ConfigTree.panels[key].moduleEnableKey) == true, true)
+        UpdateHeight()
+    end
+    if container._groupBar then container._groupBar:Hide() end
+    local bar = CreateFrame("Frame", nil, header or container)
+    container._groupBar = bar
+    bar:SetSize(292, 30)
+    if header then
+        bar:SetPoint("TOPRIGHT", header, "TOPRIGHT", -24, -14)
+        bar:SetFrameLevel(header:GetFrameLevel() + 5)
+        if not container._groupBarHooked then
+            container._groupBarHooked = true
+            container:HookScript("OnShow", function(self) if self._groupBar then self._groupBar:Show() end end)
+            container:HookScript("OnHide", function(self) if self._groupBar then self._groupBar:Hide() end end)
+        end
+        bar:SetShown(container:IsShown())
+    else
+        bar:SetPoint("TOPRIGHT", container, "TOPRIGHT", -pad, -pad)
+    end
+    container.groupToggle = Widgets.CreateCheckbox(bar, ADDON_KEY, L["CT_GROUP_ENABLED"], false, {
+        onChange=function(value) SetPanelModuleEnabled(selected, value) end,
+    })
+    container.groupToggle:SetSize(64, 30)
+    container.groupToggle:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+    container.groupToggle.label:ClearAllPoints()
+    container.groupToggle.label:SetPoint("RIGHT", container.groupToggle.box, "LEFT", -8, 0)
+    container.groupPicker = Widgets.CreateDropdown(bar, ADDON_KEY, "", options, selected, {
+        width=210, onChange=SelectGroup,
+    })
+    container.groupPicker:SetSize(210, 30)
+    container.groupPicker:SetPoint("LEFT", bar, "LEFT", 0, 0)
+    container.groupPicker.button:SetHeight(28)
+    container._refresh = function() SelectGroup(panelGroupState[panelKey] or selected) end
+    SelectGroup(selected)
+end
+
 local function RenderPanel(container, panelDef, panelKey)
-    if panelKey and panelDef.moduleEnableKey and not panelDef.disableSectionLayout then
+    if panelDef.groups then
+        RenderGroupedPanel(container, panelDef, panelKey)
+    elseif panelKey and panelDef.moduleEnableKey and not panelDef.disableSectionLayout then
         RenderSectionedPanel(container, panelDef, panelKey)
     else
         RenderSettingsPanel(container, panelDef)
@@ -1050,7 +1253,7 @@ end
 ------------------------------------------------------
 -- 패널 전환
 ------------------------------------------------------
-local function SetPanelModuleEnabled(panelKey, enabled)
+SetPanelModuleEnabled = function(panelKey, enabled)
     local panelDef = ns.ConfigTree and ns.ConfigTree.panels and ns.ConfigTree.panels[panelKey]
     if not panelDef or not panelDef.moduleEnableKey then return end
 
@@ -1075,6 +1278,10 @@ local function SetPanelModuleEnabled(panelKey, enabled)
     end
 
     local container = panelContainers[panelKey]
+    if panelDef.groupParent then
+        local parent = panelContainers[panelDef.groupParent]
+        container = parent and parent._groupBodies and parent._groupBodies[panelKey]
+    end
     if container and container._moduleOverlay then
         UpdateModuleOverlay(container, normalized)
     end
@@ -1120,6 +1327,14 @@ end
 
 local function ShowPanel(key)
     if not settingsPanel then return end
+    if not ns.ConfigTree.panels[key] and (key == "cooldowntracker" or key == "defensivetracker"
+        or key:match("^skilltrace_")) then key = "skilltracker" end -- [REFACTOR] Deleted group links open the group list.
+    local requested = ns.ConfigTree and ns.ConfigTree.panels[key]
+    if requested and requested.groupParent then
+        panelGroupState[requested.groupParent] = key
+        key = requested.groupParent
+        if settingsPanel.workspace then settingsPanel.workspace:SelectPanel(key, false) end
+    end
     local panelChanged = activePanel ~= key -- [STYLE]
     if activePanel and activePanel ~= key then
         StopDetailPreview()
@@ -1234,6 +1449,7 @@ end
 -- 패널 갱신 (버튼 onClick 후 재렌더)
 ------------------------------------------------------
 function ConfigUI:RefreshCurrentPanel()
+    searchIndex = nil -- [REFACTOR] Group names and membership may have changed.
     if not activePanel then return end
     local c = panelContainers[activePanel]
     if not c then return end
@@ -1252,7 +1468,6 @@ end
 ------------------------------------------------------
 -- Search System (CDM-style category search)
 ------------------------------------------------------
-local searchIndex = nil
 local searchModeActive = false
 local preSearchPanel = nil
 local searchDebounceTimer = nil
@@ -1290,7 +1505,15 @@ local function BuildSearchIndex()
         local panelTitle = menuLookup[targetKey] or tree.panels[targetKey].title or targetKey
         local settings = panelDef.settings
         if settings then
+            local flat = {}
             for _, s in ipairs(settings) do
+                if s.type == "card" then
+                    for _, child in ipairs(s.settings or {}) do flat[#flat + 1] = child end
+                else
+                    flat[#flat + 1] = s
+                end
+            end
+            for _, s in ipairs(flat) do
                 if SEARCHABLE_TYPES[s.type] and s.label and s.label ~= "" then
                     index[#index + 1] = {
                         name = s.label,
@@ -1592,7 +1815,7 @@ function ConfigUI:Initialize()
     end
 
     -- 메인 패널
-    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.4.2" -- [12.0.1] GetAddOnMetadata 폴백 제거
+    local version = C_AddOns.GetAddOnMetadata(addonName, "Version") or "2.2.5" -- [12.0.1] GetAddOnMetadata 폴백 제거
 
     -- [STYLE] C12: the title bar owns the series "편집 모드" button (StyleLib CreateTitleBar opts.editMode).
     -- Movers closes this window on entry and reopens it when edit mode ends.

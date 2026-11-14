@@ -80,16 +80,25 @@ end
 local function GetModuleCounts(panelKeys)
     local seen = {}
     local enabled, total = 0, 0
-    for _, panelKey in ipairs(panelKeys or {}) do
+    local function Count(panelKey, parentEnabled)
+        local panel = ns.ConfigTree and ns.ConfigTree.panels[panelKey]
+        if panel and panel.groups then
+            local active = parentEnabled ~= false and (not panel.moduleEnableKey or ns:GetDBValue(panel.moduleEnableKey) == true)
+            for _, groupKey in ipairs(panel.groups) do Count(groupKey, active) end
+            return
+        end
         local moduleName = ns.ConfigModuleMap and ns.ConfigModuleMap[panelKey]
         if moduleName and not seen[moduleName] then
             seen[moduleName] = true
             total = total + 1
             local modules = ns.db and ns.db.profile and ns.db.profile.modules
-            if modules and modules[moduleName] == true then
+            if parentEnabled ~= false and modules and modules[moduleName] == true then
                 enabled = enabled + 1
             end
         end
+    end
+    for _, panelKey in ipairs(panelKeys or {}) do
+        Count(panelKey)
     end
     return enabled, total
 end

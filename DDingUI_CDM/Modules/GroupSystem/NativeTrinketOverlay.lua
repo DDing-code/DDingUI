@@ -14,6 +14,7 @@ local hiddenCatalogCooldownIDs = {}
 local nativeEffectSlots = {}
 local pairMissingScans = {}
 local effectMissingScans = {}
+local pendingReleases = {}
 local stateRefreshQueued = false
 local legacyPairSignature
 local eventFrame = CreateFrame("Frame")
@@ -32,6 +33,31 @@ end
 
 local function IsTrackedSlot(slotID)
     return slotID == 13 or slotID == 14
+end
+
+local function IsLayoutLocked(frame)
+    return frame and ((frame.IsForbidden and frame:IsForbidden())
+        or (InCombatLockdown and InCombatLockdown() and frame.IsProtected and frame:IsProtected()))
+end
+
+local function FrameMatchesEquipSlot(frame, equipSlot)
+    if type(frame.GetEquipSlot) == "function" then
+        local ok, slot = pcall(frame.GetEquipSlot, frame)
+        if ok and not IsSecret(slot) then return slot == equipSlot end
+    end
+    local info = frame.cooldownInfo
+    if not IsSecret(info) and type(info) == "table" and not IsSecret(info.equipSlot) then
+        -- [FIX] A public nil slot identifies a regular buff, even if its ID is still cached.
+        return info.equipSlot == equipSlot
+    end
+    return true
+end
+
+local function HasCurrentEffectIdentity(effect)
+    local frame = effect.frame
+    return not (frame.IsForbidden and frame:IsForbidden())
+        and CDMCompat and CDMCompat:GetFrameCooldownID(frame) == effect.cooldownID
+        and FrameMatchesEquipSlot(frame, effect.info.equipSlot)
 end
 
 local function GetCooldown(frame)
@@ -145,7 +171,9 @@ local function ApplyPairState(pair)
     local activeEffect
     for _, effect in ipairs(pair.effects or {}) do
         local procFrame = effect.frame
-        local active = pairByProcFrame[procFrame] == pair and ReadProcActive(procFrame)
+        local active = pairByProcFrame[procFrame] == pair
+            and HasCurrentEffectIdentity(effect)
+            and ReadProcActive(procFrame)
         effect.active = active
         procFrame._ddNativeTrinketActive = active and true or nil
         if active and not effect.visualActive and procFrame._ddTexSnapHooked then
@@ -173,14 +201,18 @@ local function ApplyPairState(pair)
 
     pair.active = activeEffect ~= nil
     pair.activeProcFrame = activeEffect and activeEffect.frame or nil
-    SetBaseVisualSuppressed(pair, pair.active)
+    local canDisplay = activeEffect and activeEffect.anchored
+        and activeEffect.frame._ddContainerRef == pair.baseFrame
+    SetBaseVisualSuppressed(pair, canDisplay)
 
     local baseShown = pair.baseFrame.IsShown and pair.baseFrame:IsShown()
     local baseAlpha = baseShown and GetSafeAlpha(pair.baseFrame, 1) or 0
     for _, effect in ipairs(pair.effects or {}) do
         local procFrame = effect.frame
-        if not (procFrame.IsForbidden and procFrame:IsForbidden()) then
-            local procAlpha = effect == activeEffect and baseAlpha or 0
+        if not (procFrame.IsForbidden and procFrame:IsForbidden())
+            and (HasCurrentEffectIdentity(effect) or procFrame._ddContainerRef == pair.baseFrame)
+        then
+            local procAlpha = canDisplay and effect == activeEffect and baseAlpha or 0
             SetRegionAlpha(procFrame, procAlpha, "_ddNativeTrinketAlphaGuard")
         end
     end
@@ -197,9 +229,8 @@ end
 
 local function RefreshAllStates()
     stateRefreshQueued = false
-    for _, pair in pairs(pairsBySlot) do
-        ApplyPairState(pair)
-    end
+    -- [FIX] Overlay-only topology changes do not dirty the group's regular layout.
+    NativeTrinketOverlay:ApplyAll()
 end
 
 local function QueueStateRefresh()
@@ -294,6 +325,7 @@ local function GetEquipmentIdentity(frame, expectedCategory)
     local equipSlot = info.equipSlot
     if not IsPublicNumber(category) or not IsPublicNumber(equipSlot)
         or category ~= expectedCategory or not IsTrackedSlot(equipSlot)
+        or not FrameMatchesEquipSlot(frame, equipSlot)
     then
         return nil
     end
@@ -488,7 +520,8 @@ local function SameEffectFrames(previousEffects, nextEffects)
         return false
     end
     for index, effect in ipairs(previousEffects) do
-        if effect.frame ~= nextEffects[index].frame then return false end
+        if effect.frame ~= nextEffects[index].frame
+            or effect.cooldownID ~= nextEffects[index].cooldownID then return false end
     end
     return true
 end
@@ -534,25 +567,28 @@ local function DetachPair(pair)
     end
 
     local controller = DDingUI.FrameController
-    local inCombat = InCombatLockdown and InCombatLockdown()
     for _, effect in ipairs(pair.effects or {}) do
         local procFrame = effect.frame
         pairByProcFrame[procFrame] = nil
         procFrame._ddNativeTrinketOverlay = nil
         procFrame._ddNativeTrinketActive = nil
         procFrame._ddNativeTrinketBase = nil
-        if inCombat then
-            pair.pendingDetach = true
-            if not (procFrame.IsForbidden and procFrame:IsForbidden()) then
-                SetRegionAlpha(procFrame, 0, "_ddNativeTrinketAlphaGuard")
+        if procFrame._ddContainerRef == pair.baseFrame then
+            if IsLayoutLocked(procFrame) then
+                pendingReleases[procFrame] = pair.baseFrame
+                if not (procFrame.IsForbidden and procFrame:IsForbidden()) then
+                    SetRegionAlpha(procFrame, 0, "_ddNativeTrinketAlphaGuard")
+                end
+            elseif effect.anchored and controller and controller.ReleaseFrameFromContainer then
+                controller:ReleaseFrameFromContainer(procFrame)
+                SetRegionAlpha(procFrame, 1, "_ddNativeTrinketAlphaGuard")
             end
-        elseif effect.anchored and controller and controller.ReleaseFrameFromContainer then
-            controller:ReleaseFrameFromContainer(procFrame)
         end
     end
 end
 
 local function UpdateEventRegistration(hasPairs)
+    hasPairs = hasPairs or next(pendingReleases) ~= nil
     if hasPairs and not eventFrame._ddNativeTrinketRegistered then
         eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
         eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -670,16 +706,15 @@ function NativeTrinketOverlay:RefreshPairs(registry)
         local replacement = nextPairs[slotID]
         if replacement then
             pairMissingScans[slotID] = 0
-            if inCombat and (replacement.baseFrame ~= pair.baseFrame
-                or replacement.nativeCooldownFrame ~= pair.nativeCooldownFrame
-                or not SameEffectFrames(replacement.effects, pair.effects))
-            then
-                nextPairs[slotID] = pair
-            end
         else
             local misses = (pairMissingScans[slotID] or 0) + 1
             pairMissingScans[slotID] = misses
-            if inCombat or misses <= SCAN_MISS_GRACE then
+            local identitiesMatch = true
+            for _, effect in ipairs(pair.effects or {}) do
+                if not HasCurrentEffectIdentity(effect) then identitiesMatch = false; break end
+            end
+            -- [FIX] A recycled frame belongs to its new slot, never the missing old pair.
+            if identitiesMatch and (inCombat or misses <= SCAN_MISS_GRACE) then
                 nextPairs[slotID] = pair
             end
         end
@@ -857,17 +892,18 @@ end
 
 local function ApplyEffectPlacement(pair, effect, baseFrame, width, height)
     local procFrame = effect.frame
-    if procFrame.IsForbidden and procFrame:IsForbidden() then
+    if not HasCurrentEffectIdentity(effect) then
         return
     end
 
     local controller = DDingUI.FrameController
     local needsAnchor = not effect.anchored
         or procFrame._ddContainerRef ~= baseFrame
+        or procFrame._ddLayoutCooldownID ~= effect.cooldownID
         or effect.width ~= width
         or effect.height ~= height
 
-    if needsAnchor and not (InCombatLockdown and InCombatLockdown())
+    if needsAnchor and not IsLayoutLocked(procFrame) and not IsLayoutLocked(baseFrame)
         and controller and controller.SetupFrameInContainer
     then
         controller:SetupFrameInContainer(procFrame, baseFrame, width, height, effect.cooldownID)
@@ -934,13 +970,32 @@ local function ApplyPairPlacement(pair)
 end
 
 function NativeTrinketOverlay:ApplyAll()
+    for frame, baseFrame in pairs(pendingReleases) do
+        if pairByProcFrame[frame] then
+            pendingReleases[frame] = nil
+        elseif not IsLayoutLocked(frame) then
+            local controller = DDingUI.FrameController
+            if frame._ddContainerRef == baseFrame and controller and controller.ReleaseFrameFromContainer then
+                controller:ReleaseFrameFromContainer(frame)
+                SetRegionAlpha(frame, 1, "_ddNativeTrinketAlphaGuard")
+            end
+            pendingReleases[frame] = nil
+        end
+    end
     for _, pair in pairs(pairsBySlot) do
         ApplyPairPlacement(pair)
     end
+    UpdateEventRegistration(next(pairsBySlot) ~= nil)
 end
 
 function NativeTrinketOverlay:IsOverlayFrame(frame)
-    return pairByProcFrame[frame] ~= nil or pairByNativeCooldownFrame[frame] ~= nil
+    local pair = pairByProcFrame[frame]
+    if pair then
+        for _, effect in ipairs(pair.effects) do
+            if effect.frame == frame then return HasCurrentEffectIdentity(effect) end
+        end
+    end
+    return pairByNativeCooldownFrame[frame] ~= nil
 end
 
 function NativeTrinketOverlay:GetPairForSlot(slotID)

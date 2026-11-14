@@ -38,6 +38,13 @@ ns.defaults = {
             StasisTracker = false,
             BloodlustTimer = false,
             RaidDefensiveTracker = false,
+            CooldownTracker = false, -- [12.0.1] Independently enabled party trackers.
+            DefensiveTracker = false,
+            SkillTrace_common = true,
+            SkillTrace_cc = false,
+            -- [REFACTOR] OmniCD-style extra bars 1-8 start disabled.
+            SkillTrace_bar1 = false, SkillTrace_bar2 = false, SkillTrace_bar3 = false, SkillTrace_bar4 = false,
+            SkillTrace_bar5 = false, SkillTrace_bar6 = false, SkillTrace_bar7 = false, SkillTrace_bar8 = false,
             ReadyCheckAssistant = false,
             RaidGroups = false,
             RaidPreparation = false,
@@ -57,6 +64,37 @@ ns.defaults = {
             showLockouts = true,
             showHolidays = true,
             showReset = true,
+        },
+
+        -- [12.0.1] Tracking state is session-only; existing profiles are preserved.
+        CooldownTrace = {
+            -- [STYLE] OmniCD-like defaults (36px x 0.8, 8 per row, 3px gaps); saved values are untouched.
+            cooldowns = {iconSize=36, scale=0.8, position={point="CENTER", relativePoint="CENTER", x=-260, y=-180},
+                attachTo="screen", attachSide="RIGHT", offsetX=0, offsetY=0,
+                memberLayout="each", displayStyle="icons", barWidth=220,
+                nameClassColor=false, barClassColor=false,
+                nameFont=SL and SL.Font.path, nameFontSize=10, nameOfsX=0, nameOfsY=0,
+                nameColor=SL and {unpack(SL.Colors.text.highlight)},
+                showBorder=true, borderThickness=1, borderColor=SL and {SL.Colors.bg.input[1],SL.Colors.bg.input[2],SL.Colors.bg.input[3],1},
+                glowType="pixel", useGlowType="pixel",
+                columns=8, align="LEFT", grow="DOWN", sortOrder="recent", gapX=3, gapY=3, rowSpacing=6,
+                activeGlow=true, glowPulse=true, glowThickness=2, glowSpeed=.4, glowColor=SL and {unpack(SL.Colors.status.success)},
+                useGlow=false, useGlowDuration=.8, useGlowColor=SL and {unpack(SL.Colors.status.warning)},
+                showInParty=true, showInRaid=true, showInDelve=true,
+                showSwipe=true, showNumbers=true, showCharges=true, unknownAlpha=1},
+            defensives = {iconSize=36, scale=0.8, position={point="CENTER", relativePoint="CENTER", x=260, y=-180},
+                attachTo="screen", attachSide="LEFT", offsetX=0, offsetY=0,
+                memberLayout="each", displayStyle="icons", barWidth=220,
+                nameClassColor=false, barClassColor=false,
+                nameFont=SL and SL.Font.path, nameFontSize=10, nameOfsX=0, nameOfsY=0,
+                nameColor=SL and {unpack(SL.Colors.text.highlight)},
+                showBorder=true, borderThickness=1, borderColor=SL and {SL.Colors.bg.input[1],SL.Colors.bg.input[2],SL.Colors.bg.input[3],1},
+                glowType="pixel", useGlowType="pixel",
+                columns=8, align="LEFT", grow="DOWN", sortOrder="recent", gapX=3, gapY=3, rowSpacing=6,
+                activeGlow=true, glowPulse=true, glowThickness=2, glowSpeed=.4, glowColor=SL and {unpack(SL.Colors.status.success)},
+                useGlow=false, useGlowDuration=.8, useGlowColor=SL and {unpack(SL.Colors.status.warning)},
+                showInParty=true, showInRaid=true, showInDelve=true,
+                showSwipe=true, showNumbers=true, showCharges=true, unknownAlpha=1},
         },
 
         -- 전역 설정
@@ -1365,5 +1403,44 @@ function ns:MergeDefaults(target, defaults)
         elseif type(value) == "table" and type(target[key]) == "table" then
             self:MergeDefaults(target[key], value)
         end
+    end
+end
+
+-- [REFACTOR] Fixed layouts reuse the existing group settings shape.
+for id, y in pairs({common=-180, cc=-340}) do
+    local defaults = ns:DeepCopy(ns.defaults.profile.CooldownTrace.cooldowns)
+    defaults.position.x, defaults.position.y = 0, y
+    ns.defaults.profile.CooldownTrace[id] = defaults
+end
+
+-- [REFACTOR] OmniCD group system: spell type -> frame (0 party frame, 1-8 extra bars),
+-- type priority, per-spell overrides and the extra bars (OmniCD Config/Defaults.lua values).
+do
+    local trace = ns.defaults.profile.CooldownTrace
+    trace.frames = {defensives=0, cooldowns=0, cc=0}
+    trace.priority = {defensives=60, cooldowns=35, cc=80}
+    trace.spellFrame, trace.spellPriority, trace.spellGlow = {}, {}, {}
+    trace.extraBars = {}
+    for index = 1, 8 do
+        trace.extraBars["bar" .. index] = {
+            redirect=true, showPlayer=true, unitBar=false, locked=false,
+            anchor="TOPRIGHT", attach="TOPLEFT", offsetX=0, offsetY=0,
+            position={point="CENTER", relativePoint="CENTER", x=-360 + ((index-1) % 4) * 240, y=index <= 4 and 300 or 120},
+            layout="vertical", sortBy=index == 1 and "remaining_priority" or "priority", sortDirection="asc",
+            columns=15, scale=0.6, paddingX=-1, paddingY=-1,
+            showName=true, classColor=true, nameOfsY=0, truncateIconName=6,
+            nameOfsX=0, nameFont=SL and SL.Font.path, nameFontSize=10,
+            nameColor=SL and {unpack(SL.Colors.text.highlight)},
+            growUpward=false, growLeft=false,
+            progressBar=true, nameBar=false, invertNameBar=false,
+            textColors={activeColor={1,1,1,1}, rechargeColor={1,1,1,1}, inactiveColor={1,1,1,1},
+                useClassColor={active=false, recharge=false, inactive=false}},
+            barColors={activeColor={1,0,0,1}, rechargeColor={1,.7,0,1}, inactiveColor={0,1,0,1},
+                useClassColor={active=true, recharge=true, inactive=true}},
+            bgColors={activeColor={0,0,0,.5}, rechargeColor={1,.7,0,1}, inactiveColor={0,1,0,.5},
+                useClassColor={active=false, recharge=true, inactive=false}},
+            reverseFill=true, useIconAlpha=false, hideSpark=false, hideBorder=false,
+            statusBarWidth=205, textScale=1, textOfsX=3, textOfsY=0, truncateStatusBarName=0,
+        }
     end
 end

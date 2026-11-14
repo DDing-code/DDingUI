@@ -222,6 +222,7 @@ function ns:InitConfigTree()
             { text = L["TAB_FOCUSINTERRUPT"],   key = "focusinterrupt" },
             { text = L["TAB_BLOODLUSTTIMER"],   key = "bloodlusttimer" },
             { text = L["TAB_RAIDDEFENSIVETRACKER"], key = "raiddefensivetracker" },
+            { text = L["CT_SKILL_TRACKER"], key = "skilltracker" },
             { text = L["TAB_PARTYTRACKER"],     key = "partytracker" },
             { text = L["DEATHALERT_TITLE"] or "DeathAlert", key = "deathalert" },
             { text = L["DEATH_RELEASE_GUARD_TITLE"], key = "deathreleaseguard" },
@@ -2841,6 +2842,495 @@ function ns:InitConfigTree()
             {type="button", label=L["SCHEDULE_DELETE_ALL"], onClick=function() ns.Schedule:OnInitialize(); ns.Schedule:DeleteCache() end},
         },
     }
+
+    -- [REFACTOR] Pick a group first; its layout, effects and spells stay inside that group.
+    local G = ns.SkillTracker
+    if G then
+        G:Initialize()
+        local SL = _G.DDingUI_StyleLib
+        local C = SL.Colors
+        local controls = ns.ToolkitControls
+        local Data = ns.CooldownTraceData
+        local base = "profile.CooldownTrace.common"
+        local function Refresh() G:Refresh() end
+        local function RefreshPanel()
+            C_Timer.After(0, function()
+                if ns.ConfigUI and ns.ConfigUI.RefreshCurrentPanel then ns.ConfigUI:RefreshCurrentPanel() end
+            end)
+        end
+        local function Report(ok, reason)
+            if reason then ns.PrintError(L[reason]) end
+            return ok
+        end
+        local function Common() return ns.db.profile.CooldownTrace.common end
+        local function Combined() return Common().memberLayout == "all" end
+        local function Bars() return Common().displayStyle == "bars" end
+        local function PartyAttached() return not Combined() and Common().attachTo == "party" end
+        local function OnScreen() return not PartyAttached() end
+        local function Page() return G.uiBar or 0 end
+        local function FramePage() return Page() == 0 end
+        local glowTypes = {
+            {text=L["CT_GLOW_PIXEL"], value="pixel"}, {text=L["CT_GLOW_AUTOCAST"], value="autocast"},
+            {text=L["CT_GLOW_BUTTON"], value="button"}, {text=L["CT_GLOW_NORMAL"], value="normal"},
+        }
+        -- [REFACTOR] Effect and context cards shared by frame 0 and every extra bar (own saved keys).
+        local function EffectCards(path, visible, page)
+            return {
+                {type="card", label=L["CT_DISPLAY_SETTINGS"], barPage=page, visible=visible, settings={
+                    {type="toggle", key=path .. ".showInParty", label=L["CT_SHOW_PARTY"], onChange=Refresh},
+                    {type="toggle", key=path .. ".showInRaid", label=L["CT_SHOW_RAID"], onChange=Refresh},
+                    {type="toggle", key=path .. ".showInDelve", label=L["CT_SHOW_DELVE"], onChange=Refresh},
+                }},
+                {type="card", label=L["CT_ACTIVE_GLOW"], barPage=page, visible=visible, settings={
+                    {type="toggle", key=path .. ".activeGlow", label=L["CT_ACTIVE_GLOW_ENABLE"], onChange=Refresh},
+                    {type="dropdown", key=path .. ".glowType", label=L["CT_GLOW_TYPE"], options=glowTypes, onChange=Refresh},
+                    {type="color", key=path .. ".glowColor", label=L["CT_GLOW_COLOR"], hasAlpha=true, onChange=Refresh},
+                    {type="toggle", key=path .. ".glowPulse", label=L["CT_GLOW_PULSE"], onChange=Refresh},
+                    {type="slider", key=path .. ".glowSpeed", label=L["CT_GLOW_SPEED"], min=.1, max=1.5, step=.1, onChange=Refresh},
+                    {type="slider", key=path .. ".glowThickness", label=L["CT_GLOW_THICKNESS"], min=1, max=6, step=1, onChange=Refresh},
+                }},
+                {type="card", label=L["CT_USE_GLOW"], barPage=page, visible=visible, settings={
+                    {type="toggle", key=path .. ".useGlow", label=L["CT_USE_GLOW_ENABLE"], onChange=Refresh},
+                    {type="dropdown", key=path .. ".useGlowType", label=L["CT_GLOW_TYPE"], options=glowTypes, onChange=Refresh},
+                    {type="color", key=path .. ".useGlowColor", label=L["CT_GLOW_COLOR"], hasAlpha=true, onChange=Refresh},
+                    {type="slider", key=path .. ".useGlowDuration", label=L["CT_USE_GLOW_DURATION"], min=.2, max=3, step=.1, onChange=Refresh},
+                }},
+                {type="card", label=L["CT_ICON_DISPLAY"], barPage=page, visible=visible, settings={
+                    {type="toggle", key=path .. ".showSwipe", label=L["CT_SHOW_SWIPE"], onChange=Refresh},
+                    {type="toggle", key=path .. ".showNumbers", label=L["CT_SHOW_NUMBERS"], onChange=Refresh},
+                    {type="toggle", key=path .. ".showCharges", label=L["CT_SHOW_CHARGES"], onChange=Refresh},
+                    {type="slider", key=path .. ".unknownAlpha", label=L["CT_UNKNOWN_ALPHA"], min=.1, max=1, step=.05, onChange=Refresh},
+                }},
+            }
+        end
+        local settings = {
+            {type="toggle", key="profile.modules.SkillTracker", label=L["MODULE_ENABLED"],
+                isModuleToggle=true, onChange=function(value) G:SetEnabled(nil, value) end},
+            -- [REFACTOR] The strip is rendered above both tabs, outside their scrolling bodies.
+            {type="header", label=L["CT_TAB_BARS"]},
+            {type="custom", barStrip=true, render=function(container)
+                local strip = CreateFrame("Frame", nil, container)
+                strip:SetHeight(30)
+                strip.buttons = {}
+                local accent = SL.GetAccent("MJToolkit")
+                local function Paint()
+                    for _, button in ipairs(strip.buttons) do
+                        local index = button.index
+                        local on = index == Page()
+                        local enabled = index == 0 or G:BarEnabled(index)
+                        if index == 0 then
+                            button.label:SetText("0 " .. L["CT_DEFAULT_GROUP"])
+                        else
+                            local bar = G:Bar(index)
+                            local custom = type(bar.name) == "string" and bar.name ~= ""
+                            button.label:SetText((custom or index == 1) and index .. " " .. G:BarName(index) or tostring(index))
+                        end
+                        if on then
+                            button:SetBackdropColor(accent[1] * .16, accent[2] * .16, accent[3] * .16, .98)
+                            button:SetBackdropBorderColor(accent[1], accent[2], accent[3], 1)
+                            button.label:SetTextColor(accent[1], accent[2], accent[3], 1)
+                        else
+                            button:SetBackdropColor(unpack(C.bg.input))
+                            button:SetBackdropBorderColor(unpack(C.border.default))
+                            button.label:SetTextColor(unpack(enabled and C.text.normal or C.text.disabled))
+                        end
+                        button.dot:SetShown(enabled and not on)
+                    end
+                end
+                for index = 0, G.BAR_COUNT do
+                    local button = CreateFrame("Button", nil, strip, "BackdropTemplate")
+                    button.index = index
+                    controls.ApplyBackdrop(button, C.bg.input, C.border.default, SL.Radius and SL.Radius.control)
+                    button:SetHeight(30)
+                    button.label = controls.MakeFont(button, SL.Font.small, C.text.normal, "")
+                    button.label:SetPoint("LEFT", button, "LEFT", 12, 0)
+                    button.label:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+                    button.label:SetJustifyH("CENTER")
+                    button.label:SetWordWrap(false)
+                    -- Green dot = frame in use (OmniCD tab list).
+                    button.dot = button:CreateTexture(nil, "OVERLAY")
+                    button.dot:SetSize(6, 6)
+                    button.dot:SetPoint("LEFT", button, "LEFT", 6, 0)
+                    button.dot:SetColorTexture(1, 1, 1, 1)
+                    if SL.RoundTexture then SL.RoundTexture(button.dot, 3) end
+                    button.dot:SetVertexColor(unpack(C.status.success))
+                    button:SetScript("OnClick", function()
+                        G.uiBar = index
+                        Paint()
+                        RefreshPanel()
+                    end)
+                    strip.buttons[#strip.buttons + 1] = button
+                end
+                -- [STYLE] Frame 0 carries a longer name, so it takes two cells of the nine-button row.
+                strip:SetScript("OnSizeChanged", function(_, width)
+                    local gap, count = 6, #strip.buttons
+                    local cell = math.floor(((width or 0) - gap * (count - 1)) / (count + 1))
+                    local x = 0
+                    for position, button in ipairs(strip.buttons) do
+                        local span = button.index == 0 and cell * 2 or cell
+                        if position == count then span = math.max(cell, (width or 0) - x) end
+                        button:ClearAllPoints()
+                        button:SetPoint("TOPLEFT", strip, "TOPLEFT", x, 0)
+                        button:SetWidth(span)
+                        x = x + span + gap
+                    end
+                end)
+                Paint()
+                return strip
+            end},
+            {type="card", label=L["CT_POSITION_SETTINGS"], barPage=0, visible=FramePage, settings={
+                {type="segmented", key=base .. ".memberLayout", label=L["CT_MEMBER_LAYOUT"], refreshPanel=true, onChange=Refresh, options={
+                    {text=L["CT_MEMBER_EACH"], value="each"}, {text=L["CT_MEMBER_ALL"], value="all"},
+                }},
+                {type="segmented", key=base .. ".attachTo", label=L["CT_ATTACH_TO"], visible=function() return not Combined() end, refreshPanel=true, onChange=Refresh, options={
+                    {text=L["CT_SCREEN"], value="screen"}, {text=L["CT_PARTY_FRAME"], value="party"},
+                }},
+                {type="dropdown", key=base .. ".attachSide", label=L["CT_ATTACH_SIDE"], visible=PartyAttached, onChange=Refresh, options={
+                    {text=L["CT_RIGHT"], value="RIGHT"}, {text=L["CT_LEFT"], value="LEFT"},
+                    {text=L["CT_TOP"], value="TOP"}, {text=L["CT_BOTTOM"], value="BOTTOM"},
+                }},
+                -- Edit/reset share the cell beside the anchor choice, aligned with its buttons.
+                {type="custom", positionButtons=true, visible=OnScreen,
+                    reset=function()
+                        local d = ns.defaults.profile.CooldownTrace.common.position
+                        local p = Common().position
+                        p.point, p.relativePoint, p.x, p.y = d.point, d.relativePoint or d.point, d.x, d.y
+                        Refresh()
+                    end,
+                    render=function(container, setting)
+                        local row = CreateFrame("Frame", nil, container)
+                        row:SetHeight(64)
+                        row.edit = controls.CreateButton(row, "MJToolkit", L["CT_EDIT_POSITION"],
+                            function() ns.ToolkitMovers:ToggleConfigMode() end, {height=30})
+                        row.edit:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 8)
+                        row.edit:SetPoint("BOTTOMRIGHT", row, "BOTTOM", -3, 8)
+                        row.reset = controls.CreateButton(row, "MJToolkit", L["RESET_POSITION"],
+                            function() setting.reset() end, {height=30})
+                        row.reset:SetPoint("BOTTOMLEFT", row, "BOTTOM", 3, 8)
+                        row.reset:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 8)
+                        return row
+                    end},
+                {type="slider", key=base .. ".offsetX", label=L["CT_OFFSET_X"], min=-500, max=500, step=1, visible=PartyAttached, onChange=Refresh},
+                {type="slider", key=base .. ".offsetY", label=L["CT_OFFSET_Y"], min=-500, max=500, step=1, visible=PartyAttached, onChange=Refresh},
+            }},
+            {type="card", label=L["CT_LAYOUT_SETTINGS"], barPage=0, visible=FramePage, settings={
+                {type="segmented", key=base .. ".displayStyle", label=L["CT_DISPLAY_STYLE"], refreshPanel=true, onChange=Refresh, options={
+                    {text=L["CT_STYLE_ICONS"], value="icons"}, {text=L["CT_STYLE_BARS"], value="bars"},
+                }},
+                {type="slider", key=base .. ".barWidth", label=L["CT_BAR_WIDTH"], min=140, max=400, step=1, visible=Bars, onChange=Refresh},
+                {type="toggle", key=base .. ".barClassColor", label=L["CT_BAR_CLASS_COLOR"], visible=Bars, onChange=Refresh},
+                {type="slider", key=base .. ".columns", label=L["CT_COLUMNS"], min=1, max=12, step=1, visible=function() return not Bars() end, onChange=Refresh},
+                {type="segmented", key=base .. ".align", label=L["CT_ALIGN"], visible=function() return not Bars() end, onChange=Refresh, options={
+                    {text=L["CT_LEFT"], value="LEFT"}, {text=L["CT_CENTER"], value="CENTER"}, {text=L["CT_RIGHT"], value="RIGHT"},
+                }},
+                {type="segmented", key=base .. ".grow", label=L["CT_GROW"], onChange=Refresh, options={
+                    {text=L["CT_GROW_DOWN"], value="DOWN"}, {text=L["CT_GROW_UP"], value="UP"},
+                }},
+                {type="segmented", key=base .. ".sortOrder", label=L["CT_SORT_ORDER"], onChange=Refresh, options={
+                    {text=L["CT_SORT_RECENT"], value="recent"}, {text=L["CT_SORT_PRIORITY"], value="spell"},
+                }},
+                {type="slider", key=base .. ".gapX", label=L["CT_GAP_X"], min=0, max=20, step=1, visible=function() return not Bars() end, onChange=Refresh},
+                {type="slider", key=base .. ".gapY", label=L["CT_GAP_Y"], min=0, max=20, step=1, onChange=Refresh},
+                {type="slider", key=base .. ".rowSpacing", label=L["CT_ROW_SPACING"], min=0, max=40, step=1,
+                    visible=function() return OnScreen() and not Combined() end, onChange=Refresh},
+            }},
+            {type="card", label=L["CT_ICON_SETTINGS"], barPage=0, visible=FramePage, settings={
+                {type="slider", key=base .. ".pixelSize", label=L["CT_ICON_PIXELS"], min=8, max=96, step=1, onChange=Refresh},
+                {type="toggle", key=base .. ".showBorder", label=L["CT_ICON_BORDER"], onChange=Refresh},
+                {type="slider", key=base .. ".borderThickness", label=L["CT_BORDER_THICKNESS"], min=1, max=6, step=1, onChange=Refresh},
+                {type="color", key=base .. ".borderColor", label=L["CT_BORDER_COLOR"], hasAlpha=true, onChange=Refresh},
+            }},
+            {type="card", label=L["CT_NAME_TEXT"], barPage=0, visible=function() return FramePage() and (Bars() or Combined()) end, settings={
+                {type="font", key=base .. ".nameFont", label=L["FONT"], onChange=Refresh},
+                {type="slider", key=base .. ".nameFontSize", label=L["FONT_SIZE"], min=6, max=32, step=1, onChange=Refresh},
+                {type="color", key=base .. ".nameColor", label=L["CT_NAME_COLOR"], hasAlpha=true, onChange=Refresh},
+                {type="toggle", key=base .. ".nameClassColor", label=L["CT_NAME_CLASS_COLOR"], visible=function() return Bars() or Combined() end, onChange=Refresh},
+                {type="slider", key=base .. ".nameOfsX", label=L["CT_NAME_OFFSET_X"], min=-100, max=100, step=1, onChange=Refresh},
+                {type="slider", key=base .. ".nameOfsY", label=L["CT_NAME_OFFSET_Y"], min=-100, max=100, step=1, onChange=Refresh},
+            }},
+        }
+        for _, card in ipairs(EffectCards(base, FramePage, 0)) do settings[#settings+1] = card end
+        local POINTS = {
+            {text=L["CT_POINT_TOPLEFT"], value="TOPLEFT"}, {text=L["CT_POINT_TOPRIGHT"], value="TOPRIGHT"},
+            {text=L["CT_POINT_BOTTOMLEFT"], value="BOTTOMLEFT"}, {text=L["CT_POINT_BOTTOMRIGHT"], value="BOTTOMRIGHT"},
+        }
+        local SORTS = {
+            {text=L["CT_SORT_PRIORITY"], value="priority"}, {text=L["CT_SORT_CLASS"], value="class"},
+            {text=L["CT_SORT_REMAINING_PRIORITY"], value="remaining_priority"}, {text=L["CT_SORT_REMAINING_CLASS"], value="remaining_class"},
+        }
+        -- OmniCD checkbox look: box first, label after it, several on one line.
+        local function InlineToggles(container, items)
+            local row = CreateFrame("Frame", nil, container)
+            row:SetHeight(30)
+            local x = 0
+            for _, item in ipairs(items) do
+                local box = controls.CreateCheckbox(row, "MJToolkit", item.label, item.value, {onChange=item.onChange})
+                box.box:ClearAllPoints()
+                box.box:SetPoint("LEFT", box, "LEFT", 0, 0)
+                box.label:ClearAllPoints()
+                box.label:SetPoint("LEFT", box.box, "RIGHT", 8, 0)
+                local width = 22 + math.ceil(box.label:GetStringWidth() or 0) + 4
+                box:SetSize(width, 30)
+                box:SetPoint("LEFT", row, "LEFT", x, 0)
+                if item.disabled then box:SetDisabledState(true) end
+                x = x + width + (item.gap or 30)
+                row[#row + 1] = box
+            end
+            return row
+        end
+        for index = 1, G.BAR_COUNT do
+            local key = "bar" .. index
+            local path = "profile.CooldownTrace.extraBars." .. key
+            local function Bar() return G:Bar(index) end
+            local function Picked() return Page() == index end
+            local function Shown() return Picked() end
+            local function Unit() return Bar().unitBar == true end
+            local function Horizontal() return Bar().layout == "horizontal" end
+            local function Progress() return not Horizontal() and Bar().progressBar ~= false end
+            local function NoProgress() return not Progress() end
+            local function NameHidden() return Progress() or Bar().showName == false end
+            local function TimerOff() return NoProgress() or Bar().nameBar == true end
+            local function Set(field)
+                return function(value) Bar()[field] = value; Refresh() end
+            end
+            local function Toggle(field, label, disabled, refresh)
+                return {label=label, value=Bar()[field] == true, disabled=disabled and disabled(),
+                    onChange=function(value) Bar()[field] = value; Refresh(); if refresh then RefreshPanel() end end}
+            end
+            local list = {
+                {type="custom", visible=Picked, render=function(container)
+                    local enabled = G:BarEnabled(index)
+                    local items = {{label=L["CT_GROUP_ENABLED"], value=enabled, onChange=function(value)
+                        G:SetEnabled(key, value); RefreshPanel()
+                    end}}
+                    items[#items+1] = {label=L["CT_BAR_SHOW_PLAYER"], value=Bar().showPlayer ~= false, onChange=Set("showPlayer")}
+                    if not enabled then
+                        items[#items+1] = {label=L["CT_BAR_REDIRECT"], value=Bar().redirect ~= false, onChange=Set("redirect")}
+                    end
+                    return InlineToggles(container, items)
+                end},
+                {type="card", label=L["CT_POSITION_SETTINGS"], visible=Shown, settings={
+                    {type="segmented", key=path .. ".unitBar", label=L["CT_ATTACH_TO"], refreshPanel=true, onChange=Refresh, options={
+                        {text=L["CT_SCREEN"], value=false}, {text=L["CT_PARTY_FRAME"], value=true},
+                    }},
+                    {type="dropdown", key=path .. ".anchor", label=L["CT_ANCHOR_POINT"], visible=Unit, options=POINTS, onChange=Refresh},
+                    {type="dropdown", key=path .. ".attach", label=L["CT_ATTACH_POINT"], visible=Unit, options=POINTS, onChange=Refresh},
+                    {type="slider", key=path .. ".offsetX", label=L["CT_OFFSET_X"], visible=Unit, min=-500, max=500, step=1, onChange=Refresh},
+                    {type="slider", key=path .. ".offsetY", label=L["CT_OFFSET_Y"], visible=Unit, min=-500, max=500, step=1, onChange=Refresh},
+                }},
+                {type="card", label=L["CT_LAYOUT_SETTINGS"], visible=Shown, settings={
+                    {type="custom", render=function(container)
+                        return controls.CreateSegmentedControl(container, "MJToolkit", L["CT_DISPLAY_STYLE"], {
+                            {text=L["CT_STYLE_ICONS"], value=false}, {text=L["CT_STYLE_BARS"], value=true},
+                        }, Progress(), {onChange=function(value)
+                            Bar().progressBar = value
+                            if value then Bar().layout = "vertical" end
+                            Refresh(); RefreshPanel()
+                        end})
+                    end},
+                    {type="segmented", key=path .. ".layout", label=L["CT_LAYOUT_SETTINGS"], refreshPanel=true, onChange=Refresh, options={
+                        {text=L["CT_HORIZONTAL"], value="horizontal"}, {text=L["CT_VERTICAL"], value="vertical"},
+                    }},
+                    {type="dropdown", key=path .. ".sortBy", label=L["CT_SORT_BY"], visible=function() return not Unit() end, options=SORTS, onChange=Refresh},
+                    {type="segmented", key=path .. ".sortDirection", label=L["CT_SORT_DIRECTION"], visible=function() return not Unit() end, onChange=Refresh, options={
+                        {text=L["CT_ASCENDING"], value="asc"}, {text=L["CT_DESCENDING"], value="dsc"},
+                    }},
+                    {type="slider", key=path .. ".columns", label=L["CT_ROWS"], min=1, max=30, step=1, visible=function() return not Horizontal() end, onChange=Refresh},
+                    {type="slider", key=path .. ".columns", label=L["CT_COLUMNS"], min=1, max=30, step=1, visible=Horizontal, onChange=Refresh},
+                    {type="slider", key=path .. ".paddingX", label=L["CT_PADDING_X"], min=-1, max=20, step=1, onChange=Refresh},
+                    {type="slider", key=path .. ".paddingY", label=L["CT_PADDING_Y"], min=-1, max=20, step=1, onChange=Refresh},
+                    {type="custom", render=function(container)
+                        local items = {Toggle("growUpward", L["CT_GROW_ROWS_UP"])}
+                        if not Unit() then items[2] = Toggle("growLeft", L["CT_GROW_COLUMNS_LEFT"]) end
+                        items[1].gap = 24
+                        local row = InlineToggles(container, items)
+                        row:SetHeight(52)
+                        for _, box in ipairs(row) do box:ClearAllPoints() end
+                        for i, box in ipairs(row) do
+                            box:SetPoint("BOTTOMLEFT", row, "BOTTOM", (i - 2) * row:GetWidth() / 2, 10)
+                        end
+                        row:SetScript("OnSizeChanged", function(_, width)
+                            for i, box in ipairs(row) do
+                                box:ClearAllPoints()
+                                box:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", (i - 1) * width / 2, 10)
+                            end
+                        end)
+                        return row
+                    end},
+                }},
+                {type="card", label=L["CT_ICON_SETTINGS"], visible=Shown, settings={
+                    {type="slider", key=path .. ".pixelSize", label=L["CT_ICON_PIXELS"], min=8, max=96, step=1, onChange=Refresh},
+                    {type="toggle", key=path .. ".showBorder", label=L["CT_ICON_BORDER"], onChange=Refresh},
+                    {type="slider", key=path .. ".borderThickness", label=L["CT_BORDER_THICKNESS"], min=1, max=6, step=1, onChange=Refresh},
+                    {type="color", key=path .. ".borderColor", label=L["CT_BORDER_COLOR"], hasAlpha=true, onChange=Refresh},
+                    {type="custom", newRow=true, visible=function() return not Unit() end, render=function(container)
+                        local row = InlineToggles(container, {
+                            Toggle("showName", L["CT_SHOW_NAME"], Progress, true),
+                            Toggle("classColor", L["CT_CLASS_COLOR"], NameHidden, true),
+                        })
+                        row:SetHeight(40)
+                        return row
+                    end},
+                    {type="font", key=path .. ".nameFont", label=L["FONT"], onChange=Refresh},
+                    {type="slider", key=path .. ".nameFontSize", label=L["FONT_SIZE"], min=6, max=32, step=1,
+                        visible=function() return not Unit() end, disabled=NameHidden, onChange=Refresh},
+                    {type="color", key=path .. ".nameColor", label=L["CT_NAME_COLOR"], hasAlpha=true,
+                        visible=function() return not Unit() end, disabled=function() return NameHidden() or Bar().classColor == true end, onChange=Refresh},
+                    {type="slider", key=path .. ".nameOfsX", label=L["CT_NAME_OFFSET_X"], min=-100, max=100, step=1,
+                        visible=function() return not Unit() end, disabled=NameHidden, onChange=Refresh},
+                    {type="slider", key=path .. ".nameOfsY", label=L["CT_NAME_OFFSET_Y"], min=-100, max=100, step=1,
+                        visible=function() return not Unit() end, disabled=NameHidden, onChange=Refresh},
+                    {type="slider", key=path .. ".truncateIconName", label=L["CT_TRUNCATE_NAME"], min=0, max=20, step=1,
+                        visible=function() return not Unit() end, disabled=NameHidden, onChange=Refresh},
+                }},
+                {type="card", label=L["CT_STATUS_BAR"], visible=Shown, settings={
+                    {type="custom", fullRow=true, render=function(container)
+                        local frame = CreateFrame("Frame", nil, container)
+                        local rows = {{"textColors", "CT_COLOR_NAME"}, {"barColors", "CT_COLOR_BAR"}, {"bgColors", "CT_COLOR_BG"}}
+                        local states = {"active", "recharge", "inactive"}
+                        frame:SetHeight(22 + #rows * 30)
+                        local columns = {0, 72, 136, 200, 268}
+                        local heads = {"", "CT_STATE_ACTIVE", "CT_STATE_RECHARGE", "CT_STATE_INACTIVE", "CT_CLASS_COLORS_MULTI"}
+                        for i, key in ipairs(heads) do
+                            if key ~= "" then
+                                local text = controls.MakeFont(frame, SL.Font.small, C.text.dim, L[key])
+                                text:SetPoint("TOPLEFT", frame, "TOPLEFT", columns[i] + (i < 5 and 4 or 0), 0)
+                            end
+                        end
+                        for r, info in ipairs(rows) do
+                            local set, label = info[1], info[2]
+                            local y = -20 - (r - 1) * 30
+                            local off = NoProgress() or (set ~= "textColors" and Bar().nameBar == true)
+                            local name = controls.MakeFont(frame, SL.Font.normal, off and C.text.disabled or C.text.normal, L[label])
+                            name:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, y - 5)
+                            for s, state in ipairs(states) do
+                                local colors = Bar()[set]
+                                local swatch = controls.CreateColor(frame, "MJToolkit", "", colors[state .. "Color"], {
+                                    hasAlpha=set ~= "textColors",
+                                    onChange=function(cr, cg, cb, ca)
+                                        colors[state .. "Color"] = {cr, cg, cb, set ~= "textColors" and ca or 1}
+                                        Refresh()
+                                    end,
+                                })
+                                swatch:SetSize(52, 24)
+                                swatch.swatch:SetSize(48, 22)
+                                swatch:SetPoint("TOPLEFT", frame, "TOPLEFT", columns[s + 1], y)
+                                -- OmniCD: no inactive background; the name bar keeps only the name colors.
+                                if off or (set == "bgColors" and state == "inactive") then swatch:SetDisabledState(true) end
+                            end
+                            local options = {
+                                {text=L["CT_STATE_ACTIVE"], value="active"},
+                                {text=L["CT_STATE_RECHARGE"], value="recharge"},
+                                {text=L["CT_STATE_INACTIVE"], value="inactive", disabled=set == "bgColors"},
+                            }
+                            local use = Bar()[set].useClassColor
+                            local picker = controls.CreateDropdown(frame, "MJToolkit", "", options, use, {
+                                multiSelect=true, width=190,
+                                onChange=function(values, state)
+                                    use[state] = values[state] == true
+                                    Refresh()
+                                end,
+                            })
+                            picker:SetSize(190, 26)
+                            picker.label:Hide()
+                            picker:SetPoint("TOPLEFT", frame, "TOPLEFT", columns[5], y)
+                            if off then picker:SetDisabledState(true) end
+                        end
+                        return frame
+                    end},
+                    {type="toggle", key=path .. ".nameBar", label=L["CT_NAME_BAR"], boxLeft=true, disabled=NoProgress, refreshPanel=true, onChange=Refresh},
+                    {type="toggle", key=path .. ".invertNameBar", label=L["CT_INVERT_NAME_BAR"], boxLeft=true,
+                        disabled=function() return NoProgress() or Bar().nameBar ~= true end, onChange=Refresh},
+                    {type="toggle", key=path .. ".useIconAlpha", label=L["CT_USE_ICON_ALPHA"], boxLeft=true, disabled=NoProgress, onChange=Refresh},
+                    {type="toggle", key=path .. ".reverseFill", label=L["CT_REVERSE_FILL"], boxLeft=true, disabled=TimerOff, onChange=Refresh},
+                    {type="toggle", key=path .. ".hideSpark", label=L["CT_HIDE_SPARK"], boxLeft=true, disabled=TimerOff, onChange=Refresh},
+                    {type="toggle", key=path .. ".hideBorder", label=L["CT_HIDE_BORDER"], boxLeft=true, disabled=TimerOff, onChange=Refresh},
+                    {type="slider", key=path .. ".statusBarWidth", label=L["CT_BAR_WIDTH"], min=50, max=300, step=1, disabled=NoProgress, onChange=Refresh},
+                    {type="slider", key=path .. ".textOfsX", label=L["CT_NAME_OFFSET_X"], min=1, max=30, step=1, disabled=NoProgress, onChange=Refresh},
+                    {type="slider", key=path .. ".textOfsY", label=L["CT_NAME_OFFSET_Y"], min=-15, max=15, step=1, disabled=NoProgress, onChange=Refresh},
+                    {type="slider", key=path .. ".truncateStatusBarName", label=L["CT_TRUNCATE_NAME"], min=0, max=20, step=1, disabled=NoProgress, onChange=Refresh},
+                    {type="slider", key=path .. ".textScale", label=L["CT_NAME_SCALE"], min=.5, max=1, step=.01, percent=true, disabled=NoProgress, onChange=Refresh},
+                }},
+                {type="card", label=L["CT_MISC"], visible=Shown, settings={
+                    {type="custom", render=function(container)
+                        local input = controls.CreateInputField(container, "MJToolkit", L["CT_RENAME_BAR"], G:BarName(index), {
+                            onChange=function(text) G:RenameBar(index, text); RefreshPanel() end,
+                        })
+                        input:SetHeight(56)
+                        input.label:ClearAllPoints()
+                        input.label:SetPoint("TOPLEFT", input, "TOPLEFT", 0, -2)
+                        input.editBox:ClearAllPoints()
+                        input.editBox:SetPoint("BOTTOMLEFT", input, "BOTTOMLEFT", 0, 2)
+                        input.editBox:SetPoint("BOTTOMRIGHT", input, "BOTTOMRIGHT", 0, 2)
+                        input.editBox:SetHeight(28)
+                        return input
+                    end},
+                    {type="custom", render=function(container)
+                        local row = CreateFrame("Frame", nil, container)
+                        row:SetHeight(56)
+                        row.reset = controls.CreateButton(row, "MJToolkit", L["CT_RESET_BAR"],
+                            function() G:ResetBar(index); RefreshPanel() end, {width=110, height=28})
+                        row.reset:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 2)
+                        if not Unit() then
+                            row.position = controls.CreateButton(row, "MJToolkit", L["CT_RESET_FRAME_POSITION"],
+                                function() G:ResetBarPosition(index) end, {height=28})
+                            row.position:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 2)
+                            row.position:SetPoint("BOTTOMRIGHT", row.reset, "BOTTOMLEFT", -8, 0)
+                        end
+                        return row
+                    end},
+                }},
+            }
+            -- [REFACTOR] The bar's own effect cards sit above its misc card (rename/reset stays last).
+            local misc = table.remove(list)
+            for _, card in ipairs(EffectCards(path, Shown, index)) do list[#list+1] = card end
+            list[#list+1] = misc
+            for _, setting in ipairs(list) do
+                setting.barPage = index
+                settings[#settings+1] = setting
+            end
+        end
+        settings[#settings+1] = {type="header", label=L["CT_TRACKED_SPELLS"]}
+        settings[#settings+1] = {type="custom", render=function(container)
+            local options, values = {}, {}
+            for _, category in ipairs(Data.categories) do
+                options[#options+1] = {text=L["CT_CATEGORY_" .. category:upper()], value=category,
+                    disabled=Page() == 0 and G:TypeFrame(category) == 0}
+                values[category] = G:TypeFrame(category) == Page() or nil
+            end
+            local dropdown
+            dropdown = controls.CreateDropdown(container, "MJToolkit", L["CT_SPELL_TYPES"], options, values, {
+                multiSelect=true, width=220,
+                onChange=function(set, category)
+                    if not Report(G:SetTypeFrame(category, set[category] and Page() or 0)) then
+                        local current = {}
+                        for _, id in ipairs(Data.categories) do current[id] = G:TypeFrame(id) == Page() or nil end
+                        dropdown:SetValue(current, true)
+                    else
+                        RefreshPanel()
+                    end
+                end,
+            })
+            dropdown:SetHeight(56)
+            dropdown.label:ClearAllPoints()
+            dropdown.label:SetPoint("TOPLEFT", dropdown, "TOPLEFT", 0, -2)
+            dropdown.label:SetPoint("TOPRIGHT", dropdown, "TOPRIGHT", 0, -2)
+            dropdown.button:ClearAllPoints()
+            dropdown.button:SetPoint("BOTTOMLEFT", dropdown, "BOTTOMLEFT", 0, 2)
+            dropdown.button:SetPoint("BOTTOMRIGHT", dropdown, "BOTTOMRIGHT", 0, 2)
+            dropdown.button:SetHeight(28)
+            return dropdown
+        end}
+        settings[#settings+1] = {type="custom", render=function(container)
+            return ns.modules.SkillTrace_common:CreateSpellList(container, Page())
+        end}
+
+        tree.panels.skilltracker = {
+            title=L["CT_SKILL_TRACKER"], moduleEnableKey="profile.modules.SkillTracker",
+            compact=true, sectionColumns=2, settings=settings,
+        }
+        ns.ConfigModuleMap.skilltracker = "SkillTracker" -- dashboard count; the master flag is the module switch
+    end
 
     self.ConfigTree = tree
     return tree

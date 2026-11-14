@@ -8,7 +8,7 @@ OVERLAY = (ROOT / "DDingUI_CDM/Modules/GroupSystem/NativeTrinketOverlay.lua").re
 SKINNING = (ROOT / "DDingUI_CDM/Modules/IconViewers/IconSkinning.lua").read_text(encoding="utf-8")
 
 
-def test_native_pair_selection():
+def overlay_runtime():
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(r'''
         SECRET = {}
@@ -37,6 +37,7 @@ def test_native_pair_selection():
             SetAlpha = function(self, alpha) self.alpha = alpha end,
             IsShown = function(self) return self.shown end,
             IsForbidden = function() return false end,
+            IsProtected = function(self) return self.protected == true end,
             GetWidth = function() return 40 end,
             GetHeight = function() return 40 end,
             ClearAllPoints = function() end,
@@ -47,6 +48,7 @@ def test_native_pair_selection():
             RegisterEvent = function() end,
             UnregisterAllEvents = function() end,
             IsActive = function(self) return self.active end,
+            GetEquipSlot = function(self) return self.cooldownInfo and self.cooldownInfo.equipSlot end,
             OnActiveStateChanged = function() end,
         }
         function CreateFrame()
@@ -86,21 +88,28 @@ def test_native_pair_selection():
             CustomIcons = {GetDynamicDB = function() return dyn end,
                 GetAllIconFrames = function() return {bag = base, second = secondBase} end},
             FrameController = {SetupFrameInContainer = function(_, frame, target)
-                assert(not combat, "combat reanchor")
+                assert(not combat or (not frame:IsProtected() and not target:IsProtected()), "protected combat reanchor")
                 frame._ddContainerRef = target
+                frame._ddLayoutCooldownID = frame.cooldownID
             end, ReleaseFrameFromContainer = function(_, frame)
-                assert(not combat, "combat detach")
+                assert(not combat or not frame:IsProtected(), "protected combat detach")
                 frame._ddContainerRef = nil
+                frame:SetAlpha(1)
             end},
         }
+        buffFrames = {[101] = idle, [102] = active, [103] = secondProc}
         registry = {GetFrames = function(_, viewer)
-            return viewer == "BuffIconCooldownViewer"
-                and {[101] = idle, [102] = active, [103] = secondProc} or {}
+            return viewer == "BuffIconCooldownViewer" and buffFrames or {}
         end}
     ''')
     ns = lua.table(Addon=lua.globals().addon)
     lua.execute((ROOT / "DDingUI_CDM/Core/CDMCompat.lua").read_text(encoding="utf-8"), "DDingUI_CDM", ns)
     lua.execute(OVERLAY, "DDingUI_CDM", ns)
+    return lua
+
+
+def test_native_pair_selection():
+    lua = overlay_runtime()
     lua.execute(r'''
         local overlay = addon.NativeTrinketOverlay
         assert(overlay:RefreshPairs(registry) == 2, "nil tracking setting excluded the second slot")
@@ -182,6 +191,155 @@ def test_native_pair_selection():
     ''')
 
 
+def test_proc_frames_reassigned_in_combat():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        combat = true
+        -- Blizzard RefreshData can assign different IDs to the same pooled frames.
+        active.cooldownID, secondProc.cooldownID = 103, 102
+        active.cooldownInfo = {category = 2, equipSlot = 14}
+        secondProc.cooldownInfo = {category = 2, equipSlot = 13}
+        active.active = true; active:OnActiveStateChanged(); flush()
+        assert(active.alpha == 0, "reused proc appeared over the previous trinket before reconcile")
+        assert(base.cooldown.alpha == 1, "reused proc suppressed the wrong item cooldown")
+        buffFrames[102], buffFrames[103] = secondProc, active
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        assert(active.anchor == secondBase and secondProc.anchor == base, "combat pair kept old slots")
+        assert(active.alpha == 1 and secondProc.alpha == 0)
+        assert(not overlay:IsSlotEffectActive(13) and overlay:IsSlotEffectActive(14))
+        secondProc.active = true; secondProc:OnActiveStateChanged(); flush()
+        assert(secondProc.alpha == 0.8 and active.alpha == 1, "simultaneous procs fought for one slot")
+    ''')
+
+
+def test_second_proc_appearing_during_combat():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        buffFrames[102] = nil
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        combat = true
+        active.active = true; buffFrames[102] = active
+        overlay:RefreshPairs(registry); flush()
+        assert(active.anchor == base and active.alpha == 0.8, "new combat proc was never anchored")
+        assert(overlay:GetPairForSlot(13).activeProcFrame == active)
+        assert(base.cooldown.alpha == 0 and secondBase.cooldown.alpha == 1)
+    ''')
+
+
+def test_missing_pair_cannot_reclaim_recycled_frame():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        buffFrames[102] = nil
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        combat = true
+        -- A transient registry gap retains an unchanged frame.
+        buffFrames[101] = nil
+        overlay:RefreshPairs(registry); flush()
+        assert(overlay:GetPairForSlot(13), "temporary scan miss discarded a valid pair")
+        -- Once reused, that same frame can no longer be retained by slot 13.
+        idle.cooldownID = 103; idle.active = true
+        idle.cooldownInfo = {category = 2, equipSlot = 14}
+        buffFrames[103] = idle
+        overlay:RefreshPairs(registry); flush()
+        assert(not overlay:GetPairForSlot(13), "missing pair retained a recycled frame")
+        assert(idle.anchor == secondBase and idle.alpha == 1)
+        assert(base.cooldown.alpha == 1 and secondBase.cooldown.alpha == 0)
+    ''')
+
+
+def test_protected_proc_waits_for_safe_layout():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        buffFrames[102] = nil
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        combat = true
+        active.protected = true; active.active = true; buffFrames[102] = active
+        overlay:RefreshPairs(registry); flush()
+        assert(active.anchor == nil and active.alpha == 0)
+        assert(base.cooldown.alpha == 1, "unplaced effect suppressed the base cooldown")
+        combat = false; overlay:ApplyAll(); flush()
+        assert(active.anchor == base and active.alpha == 0.8)
+        -- A protected old frame must still be released after its pair is replaced.
+        combat = true
+        replacement = proc(102, 13); replacement.active = true
+        buffFrames[102] = replacement
+        overlay:RefreshPairs(registry); flush()
+        assert(active._ddContainerRef == base and active.alpha == 0)
+        assert(replacement.anchor == base and replacement.alpha == 0.8)
+        combat = false; overlay:ApplyAll(); flush()
+        assert(active._ddContainerRef == nil, "protected pending release was lost")
+        assert(replacement.anchor == base and replacement.alpha == 0.8)
+    ''')
+
+
+def test_proc_only_base_can_be_shown_before_anchoring():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        dyn.iconData.bag = {type = "trinketProc", slotID = 13, settings = {showItemCooldown = false}}
+        base._ddIsManaged = nil; base._ddContainerRef = nil; base.shown = false
+        local notified = false
+        addon.DynamicIconBridge = {NotifyIconsChanged = function() notified = true end}
+        active.active = true
+        overlay:RefreshPairs(registry); flush()
+        assert(overlay:IsSlotEffectActive(13) and notified, "hidden proc-only base could never enter layout")
+        assert(active.alpha == 0 and base.cooldown.alpha == 1)
+        base._ddIsManaged = true; base._ddContainerRef = {}; base.shown = true
+        overlay:ApplyAll(); flush()
+        assert(active.anchor == base and active.alpha == 0.8)
+    ''')
+
+
+def test_reused_proc_does_not_capture_regular_buff_group():
+    for hidden_id in (False, True):
+        lua = overlay_runtime()
+        lua.globals().hiddenID = hidden_id
+        lua.execute(r'''
+            local overlay = addon.NativeTrinketOverlay
+            overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+            combat = true
+            local buffsGroup = {}
+            -- The pool frame now holds a regular class buff. Its public metadata
+            -- has no equipment slot even when its new ID is temporarily secret.
+            apiInfo[201] = {category = 2, spellID = 556}
+            active.cooldownID = hiddenID and SECRET or 201
+            active.cooldownInfo = {category = 2, spellID = 556}
+            active.active = true
+            active._ddContainerRef = buffsGroup; active.anchor = buffsGroup
+            active:SetAlpha(0.6); active:OnActiveStateChanged(); flush()
+            assert(active.anchor == buffsGroup, "regular buff was pulled back to the trinket slot")
+            assert(active.alpha == 0.6, "old trinket pair hid a regular buff in another group")
+            assert(not overlay:IsOverlayFrame(active), "regular buff remained excluded from group classification")
+            buffFrames[102] = nil; buffFrames[201] = active
+            overlay:RefreshPairs(registry); flush()
+            assert(active._ddContainerRef == buffsGroup and active.alpha == 0.6,
+                "detaching the old pair released the buff's new group")
+        ''')
+
+
+def test_secret_equipment_metadata_keeps_valid_proc():
+    lua = overlay_runtime()
+    lua.execute(r'''
+        local overlay = addon.NativeTrinketOverlay
+        overlay:RefreshPairs(registry); overlay:ApplyAll(); flush()
+        combat = true
+        active.cooldownID = SECRET
+        active.cooldownInfo = {category = 2, equipSlot = SECRET}
+        active.active = true; active:OnActiveStateChanged(); flush()
+        assert(active.anchor == base and active.alpha == 0.8)
+        assert(overlay:IsOverlayFrame(active) and overlay:IsSlotEffectActive(13))
+        -- A readable slot change also overrides an old cached ID.
+        active.cooldownInfo.equipSlot = 14
+        active:OnActiveStateChanged(); flush()
+        assert(not overlay:IsOverlayFrame(active) and active.alpha == 0)
+    ''')
+
+
 def main():
     identity_reader = OVERLAY.split("local function GetEquipmentIdentity", 1)[1].split(
         "local function FindIcon", 1
@@ -204,4 +362,11 @@ def main():
 if __name__ == "__main__":
     main()
     test_native_pair_selection()
+    test_proc_frames_reassigned_in_combat()
+    test_second_proc_appearing_during_combat()
+    test_missing_pair_cannot_reclaim_recycled_frame()
+    test_protected_proc_waits_for_safe_layout()
+    test_proc_only_base_can_be_shown_before_anchoring()
+    test_reused_proc_does_not_capture_regular_buff_group()
+    test_secret_equipment_metadata_keeps_valid_proc()
     print("native trinket overlay contract: ok")

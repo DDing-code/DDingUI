@@ -1,5 +1,26 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.5
+
+Release date: 2026-11-14
+Scope: Changes after the 2.2.4.2 release commit d517969.
+
+### 한국어
+
+- **스킬 추적:** 파티원의 쿨기·생존기·차단·군중 제어 기술을 그룹별로 선택해 추적하는 기능을 추가했습니다. 직업·전문화별 주문 목록에서 표시할 기술과 우선순위를 정할 수 있습니다.
+- **그룹별 표시:** 아이콘 또는 바, 파티원별 또는 전체 통합 표시, 파티 프레임 부착과 화면 배치를 지원합니다. 크기·간격·정렬·닉네임·직업 색상·남은 시간·충전 수·글로우를 그룹별로 조절할 수 있습니다.
+- **추적과 미리보기:** 효과 유지 표시와 재사용 대기시간 표시를 연결하고, 파티 구성·전문화 변경과 전투 중 제한값에 대응했습니다. 설정창과 위치 편집 모드에서 견본을 확인할 수 있으며, 혼자일 때는 실제 추적 표시를 숨깁니다.
+- **메모장:** ‘제목 복사’와 ‘내용 복사’ 버튼을 추가했습니다. 버튼으로 해당 글을 선택한 뒤 Ctrl+C로 복사하고 모집창 등에 붙여넣을 수 있습니다.
+- **시전 알림:** 미리보기에서 직업 색상을 읽을 때 발생할 수 있던 오류를 수정했습니다.
+
+### English
+
+- **Skill tracking:** Added configurable groups for party members' cooldowns, defensives, interrupts and crowd-control abilities. Choose tracked spells and priorities from class and specialization spell lists.
+- **Per-group display:** Choose icons or bars, individual members or a combined display, party-frame attachment or screen positioning. Customize size, spacing, sorting, nicknames, class colors, remaining time, charges and glow per group.
+- **Tracking and previews:** Connected active-effect displays with cooldown timers and handled party/spec changes and combat-restricted values. Preview samples in settings and position-edit mode; live tracking stays hidden while solo.
+- **Notepad:** Added Copy Title and Copy Content buttons. Click to select the text, then press Ctrl+C and paste it into the group listing or another field.
+- **Casting alerts:** Fixed a possible class-color lookup error in the preview.
+
 ## 2.2.4.2
 
 Release date: 2026-10-24

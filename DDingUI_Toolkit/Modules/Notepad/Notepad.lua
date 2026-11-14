@@ -7,6 +7,7 @@
 local addonName, ns = ...
 local DDingToolKit = ns.DDingToolKit
 local UI = ns.UI
+local L = ns.L
 
 -- 모듈 생성
 local Notepad = {}
@@ -280,6 +281,16 @@ end
 ------------------------------------------------
 -- [3] 상세보기 창
 ------------------------------------------------
+-- [REFACTOR] 클립보드 복사는 사용자의 Ctrl+C 입력으로 처리한다.
+local function CreateCopyButton(parent, field, text)
+    local button = UI:CreateButton(parent, 100, 20, text)
+    button:SetPoint("BOTTOMRIGHT", field, "TOPRIGHT", 0, 4)
+    button:SetScript("OnClick", function()
+        field.editBox:SetFocus()
+        field.editBox:HighlightText()
+    end)
+end
+
 local function CreateDetailFrame()
     if detailFrame then return detailFrame end
 
@@ -320,6 +331,7 @@ local function CreateDetailFrame()
 
     detailTitleEdit = UI:CreateEditBox(content, 270, 28)
     detailTitleEdit:SetPoint("TOPLEFT", content, "TOPLEFT", 15, yOffset)
+    CreateCopyButton(content, detailTitleEdit, L["NOTEPAD_COPY_TITLE"])
     yOffset = yOffset - 45
 
     -- 세부 정보
@@ -331,6 +343,13 @@ local function CreateDetailFrame()
 
     detailContentEdit = CreateMultiLineEditBox(content, 270, 220)
     detailContentEdit:SetPoint("TOPLEFT", content, "TOPLEFT", 15, yOffset)
+    CreateCopyButton(content, detailContentEdit, L["NOTEPAD_COPY_CONTENT"])
+
+    local copyHint = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    copyHint:SetPoint("TOPLEFT", detailContentEdit, "BOTTOMLEFT", 0, -10)
+    copyHint:SetPoint("TOPRIGHT", detailContentEdit, "BOTTOMRIGHT", 0, -10)
+    copyHint:SetTextColor(unpack(UI.colors.textDim))
+    copyHint:SetText(L["NOTEPAD_COPY_HINT"])
 
     -- 버튼 영역
     local closeBtn = UI:CreateButton(detailFrame, 80, 32, "닫기")

@@ -86,7 +86,10 @@ def test_visibility_and_immediate_notepad_refresh():
 
 
 def test_actual_section_builder_drops_separator_only_tabs():
-    lua = config_runtime()
+    from test_cooldown_trace import trace_runtime, load
+    lua = trace_runtime()
+    load(lua, "Config_Data.lua")
+    lua.execute("tree=ns:InitConfigTree()")
     source = (ROOT / "Config_UI.lua").read_text(encoding="utf-8-sig")
     visibility = source.split("local function IsSettingVisible(setting)", 1)[1].split("\nend", 1)[0]
     builder = source.split("local function BuildPanelSections(", 1)[1].split("local function CreateSectionTab", 1)[0]
@@ -104,6 +107,48 @@ def test_actual_section_builder_drops_separator_only_tabs():
         end
         local sections=BuildSections({settings={{type="header"},{type="separator"}}},true,"test")
         assert(#sections==0)
+        -- [REFACTOR] OmniCD-style Skill Tracker page: frame 0 settings and effects share the first tab.
+        do
+            ns.db.profile.modules.SkillTrace_bar1=true -- the picked bar's options appear once it is in use
+            -- [REFACTOR] One "Group Settings" tab: the strip picks frame 0 or a bar, and only that page is listed.
+            local function Collect()
+                local sections=BuildSections(tree.panels.skilltracker,true,'skilltracker')
+                assert(#sections==2 and sections[2].label==ns.L.CT_TRACKED_SPELLS)
+                assert(sections[1].label==ns.L.CT_TAB_BARS)
+                assert(tree.panels.skilltracker.settings[3].barStrip)
+                for _,section in ipairs(sections) do
+                    for _,s in ipairs(section.settings) do assert(not s.barStrip) end
+                end
+                local groups,bars={},{}
+                for i,section in ipairs(sections) do
+                    for _,s in ipairs(FlatSettings(section.settings)) do
+                        if s.key and s.key:find('^profile%.CooldownTrace%.common%.') then groups[s.key:match('([^.]+)$')]=i end
+                        local bar,field
+                        if s.key then bar,field=s.key:match('^profile%.CooldownTrace%.extraBars%.(bar%d)%.([^.]+)$') end
+                        if bar then bars[bar]=bars[bar] or {}; bars[bar][field]=i end
+                    end
+                end
+                return groups,bars
+            end
+            local effects={'showInParty','showInRaid','showInDelve','activeGlow','glowType','glowColor','glowPulse',
+                'glowSpeed','glowThickness','useGlow','useGlowType','useGlowColor','useGlowDuration',
+                'showSwipe','showNumbers','showCharges','unknownAlpha','showBorder','borderThickness','borderColor'}
+            ns.SkillTracker.uiBar=nil
+            local groups,bars=Collect()
+            assert(groups.attachTo==1 and groups.columns==1 and groups.align==1 and groups.sortOrder==1)
+            assert(groups.pixelSize==1 and not groups.scale and groups.gapX==1 and groups.gapY==1)
+            for _,key in ipairs(effects) do assert(groups[key]==1) end
+            assert(next(bars)==nil)
+            ns.SkillTracker.uiBar=1
+            groups,bars=Collect()
+            assert(next(groups)==nil and bars.bar1 and not bars.bar2)
+            assert(bars.bar1.layout==1 and bars.bar1.pixelSize==1 and bars.bar1.nameBar==1)
+            for _,key in ipairs(effects) do assert(bars.bar1[key]==1) end
+            ns.SkillTracker.uiBar=2 -- unused groups can be configured before enabling
+            groups,bars=Collect()
+            assert(next(groups)==nil and bars.bar2 and not bars.bar1 and bars.bar2.layout==1)
+            ns.SkillTracker.uiBar=nil
+        end
     ''')
 
 
@@ -381,4 +426,34 @@ def test_section_tabs_fit_labels_and_reflow_without_losing_selection():
             RenderSectionedPanel(c,{},"review")
             assert(not c:GetScript("OnSizeChanged"), "old tab layout must not run on a single section")
         end
+    ''')
+
+def test_group_display_controls_use_existing_keys_and_keep_other_layouts():
+    from test_cooldown_trace import trace_runtime, load
+    lua = trace_runtime()
+    load(lua, 'UI/Controls.lua')
+    load(lua, 'Config_Data.lua')
+    lua.execute('''
+        local G,db=ns.SkillTracker,ns.db.profile.CooldownTrace
+        EnableCommon(); G:SetEnabled('bar2',true); G.uiBar=2
+        local other,position=db.extraBars.bar3,db.extraBars.bar2.position
+        local layout,location
+        for _,s in ipairs(ns:InitConfigTree().panels.skilltracker.settings) do
+            if s.type=='card' and s.barPage==2 then
+                if s.label==ns.L.CT_LAYOUT_SETTINGS then layout=s end
+                if s.label==ns.L.CT_POSITION_SETTINGS then location=s end
+            end
+        end
+        assert(layout and location and location.settings[1].key=='profile.CooldownTrace.extraBars.bar2.unitBar')
+        assert(location.settings[1].options[1].value==false and location.settings[1].options[2].value==true)
+        local host=CreateFrame('Frame',nil,UIParent); host:SetSize(600,600)
+        local selector=layout.settings[1].render(host)
+        selector:SetValue(false)
+        assert(db.extraBars.bar2.progressBar==false and not ns.modules.SkillTrace_bar2.bars)
+        db.extraBars.bar2.layout='horizontal'
+        selector:SetValue(true)
+        assert(db.extraBars.bar2.layout=='vertical' and ns.modules.SkillTrace_bar2.bars)
+        assert(db.extraBars.bar2.position==position and db.extraBars.bar3==other)
+        G:SetEnabled('bar2',false)
+        assert(layout.visible() and location.visible())
     ''')

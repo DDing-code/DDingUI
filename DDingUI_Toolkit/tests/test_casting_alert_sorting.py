@@ -1,5 +1,55 @@
 from pathlib import Path
 
+from lupa.lua51 import LuaRuntime
+
+
+def test_casting_alert_preview_passes_only_class_token_to_color_api() -> None:
+    lua = LuaRuntime()
+    lua.execute('''
+        ns = { DDingToolKit = { RegisterModule = function() end } }
+        GetTime = function() return 100 end
+        UnitName = function() return "Player" end
+        UnitClass = function() return "Warlock", "WARLOCK", 9 end
+        playerColor = { r = 0.58, g = 0.51, b = 0.79 }
+        colorCalls = 0
+        C_ClassColor = { GetClassColor = function(className, tintColor)
+            assert(className == "WARLOCK")
+            assert(tintColor == nil, "bad argument #2: class ID passed as tintColor")
+            colorCalls = colorCalls + 1
+            return playerColor
+        end }
+        C_Timer = { NewTicker = function(_, callback)
+            previewTick = callback
+            return { Cancel = function() tickerCancelled = true end }
+        end }
+    ''')
+    source = (
+        Path(__file__).parents[1] / "Modules/CastingAlert/CastingAlert.lua"
+    ).read_text(encoding="utf-8-sig")
+    lua.execute(source, "DDingUI_Toolkit", lua.globals().ns)
+    lua.execute('''
+        local module = ns.CastingAlert
+        -- 프레임 생성·그리기만 생략하고 실제 미리보기 호출 경로를 실행한다.
+        module.CreateMainFrame = function() end
+        module.RenderList = function(_, list) rendered = list end
+        module:EnterEditPreview()
+        assert(module:IsTestMode() and #rendered == 3)
+        assert(rendered[1].targetClassColor == playerColor)
+        assert(rendered[1].targetsPlayerNamePlain)
+        assert(rendered[2].targetClassColor == nil)
+        assert(rendered[3].targetClassColor == nil)
+        previewTick()
+        assert(colorCalls == 2 and #rendered == 3)
+        module.db.maxShow = 1
+        module:UpdateStyle()
+        assert(colorCalls == 3 and #rendered == 1)
+        module:ExitEditPreview()
+        assert(not module:IsTestMode() and tickerCancelled and #rendered == 0)
+        module:EnterPreview()
+        assert(colorCalls == 4 and rendered[1].targetClassColor == playerColor)
+        module:ExitPreview()
+    ''')
+
 
 def test_casting_alert_renders_sorted_casts_into_contiguous_slots() -> None:
     source = (

@@ -1632,6 +1632,7 @@ function CastingAlert:BuildPreviewInfos()
 
     local now = GetTime()
     local playerName = UnitName("player") or PLAYER
+    local _, playerClass = UnitClass("player")
     local samples = {
         { spellID = 116, targetName = playerName, targetsPlayer = true, important = true, notInterruptible = false },
         { spellID = 44614, targetName = "Party", targetsPlayer = false, important = false, notInterruptible = false },
@@ -1658,7 +1659,7 @@ function CastingAlert:BuildPreviewInfos()
             notInterruptibleSecret = SecretBoolean(sample.notInterruptible),
             targetName = sample.targetName,
             hasTargetNamePlain = sample.targetName ~= nil,
-            targetClassColor = i == 1 and C_ClassColor and C_ClassColor.GetClassColor(select(2, UnitClass("player"))) or nil,
+            targetClassColor = i == 1 and C_ClassColor and C_ClassColor.GetClassColor(playerClass) or nil,
             targetsPlayerNamePlain = sample.targetsPlayer,
             targetsPlayerSecret = sample.targetsPlayer,
             importantSecret = SecretBoolean(sample.important),

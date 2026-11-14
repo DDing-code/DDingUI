@@ -54,6 +54,7 @@ local CATEGORY_DEFS = {
             "focusinterrupt",
             "bloodlusttimer",
             "raiddefensivetracker",
+            "skilltracker",
             "rangedisplay",
             "characterpositionmarker",
         },
@@ -655,6 +656,7 @@ function Workspace:Create(title, version, opts)
     workspace.opts = opts
     workspace.primaryRows = {}
     workspace.moduleRows = {}
+    workspace.contentHeader = contentHeader -- [STYLE] panels may place compact controls in the title row
 
     local detailTitle = MakeFont(contentHeader, 18, C.text.highlight)
     detailTitle:SetPoint("TOPLEFT", contentHeader, "TOPLEFT", 24, -18)

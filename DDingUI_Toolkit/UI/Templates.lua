@@ -259,21 +259,11 @@ local function GetConfirmationFrame()
         end
         ShowNextConfirmation()
     end)
-    frame:SetScript("OnShow", function(self)
-        self:EnableKeyboard(true)
-        self:SetPropagateKeyboardInput(true)
-        self:Raise()
-    end)
+    -- [12.0.1] Let Blizzard handle Escape; changing keyboard propagation in combat is protected.
+    tinsert(UISpecialFrames, "DDingToolKitConfirmationDialog")
+    frame:SetScript("OnShow", function(self) self:Raise() end)
     frame:SetScript("OnHide", function(self)
-        self:EnableKeyboard(false)
-    end)
-    frame:SetScript("OnKeyDown", function(self, key)
-        if key ~= "ESCAPE" then
-            self:SetPropagateKeyboardInput(true)
-            return
-        end
-        self:SetPropagateKeyboardInput(false)
-        self.cancel:Click()
+        if confirmationCurrent then self.cancel:Click() end
     end)
 
     confirmationFrame = frame

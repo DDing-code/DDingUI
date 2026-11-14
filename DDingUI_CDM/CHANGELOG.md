@@ -2,6 +2,23 @@
 
 ---
 
+## v2.2.3.2
+
+_Release date: 2026-11-14_
+_Scope: Changes after the v2.2.3.1 release commit d9d66fa._
+
+### English Patch Notes
+
+- **Trinket effects:** Fixed equip-effect buffs appearing in the wrong trinket slot or failing to appear when cooldown frames change during combat.
+- **Buff groups:** Fixed ordinary class buffs being moved into a trinket slot or hidden in their own group after the game reused a trinket effect frame.
+- **Custom spell icons:** Manually added talent spells now stay hidden when the current specialization has not learned them, while learned replacement spells remain supported.
+
+### Korean Patch Notes
+
+- **장신구 착용효과:** 전투 중 표시 프레임이 바뀌면 발동 버프가 다른 장신구 칸에 나오거나 표시되지 않던 문제를 수정했습니다.
+- **버프 그룹:** 장신구 효과에 쓰이던 프레임이 재사용될 때 일반 직업 버프가 장신구 칸으로 이동하거나 원래 그룹에서 숨겨지던 문제를 수정했습니다.
+- **사용자 지정 주문 아이콘:** 직접 추가한 특성 주문을 현재 전문화에서 배우지 않았으면 숨기도록 수정했습니다. 실제로 배운 대체 주문은 계속 표시합니다.
+
 ## v2.2.3.1
 
 _Release date: 2026-10-15_

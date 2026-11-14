@@ -226,7 +226,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     row.items = NormalizeOptions(options)
     row.rows = {}
     row.filtered = {}
-    row.currentValue = nil
+    row.currentValue = opts.multiSelect and {} or nil
     row.keyboardIndex = 0
     row.mediaType = opts.mediaType
     row.searchable = opts.searchable
@@ -334,10 +334,24 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
         UpdateScrollbar()
     end
 
+    -- [REFACTOR] Multi-select (OmniCD "Multiselect"): the value is a set and the button lists the picks.
+    local function MultiText()
+        local names = {}
+        for _, item in ipairs(row.items) do
+            if row.currentValue[item.value] then names[#names+1] = item.text end
+        end
+        return #names > 0 and table.concat(names, ", ") or (opts.placeholder or "\226\128\148")
+    end
+
+    local function IsSelected(item)
+        if opts.multiSelect then return item ~= nil and row.currentValue[item.value] == true end
+        return item and item.value == row.currentValue
+    end
+
     local function RefreshRowStates()
         for _, optionRow in ipairs(row.rows) do
             local item = optionRow.item
-            local selected = item and item.value == row.currentValue
+            local selected = IsSelected(item)
             local keyboard = item and row.filtered[row.keyboardIndex] == item
             optionRow.accent:SetShown(selected and not Controls.Rounded) -- [STYLE] rounded fill marks it
             if selected then
@@ -357,6 +371,13 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
 
     local function SelectItem(item, silent)
         if not item or item.disabled then return false end
+        if opts.multiSelect then
+            row.currentValue[item.value] = not row.currentValue[item.value] or nil
+            selectedText:SetText(MultiText())
+            RefreshRowStates()
+            if not silent and opts.onChange then opts.onChange(row.currentValue, item.value) end
+            return true
+        end
         local changed = row.currentValue ~= item.value
         row.currentValue = item.value
         selectedText:SetText(item.text)
@@ -394,7 +415,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
             optionRow.text:GetFont()
 
         optionRow:SetScript("OnEnter", function(self)
-            if self.item and not self.item.disabled and self.item.value ~= row.currentValue then
+            if self.item and not self.item.disabled and not IsSelected(self.item) then
                 Controls.TintFill(self.background, 1, 1, 1, DD.ITEM_HL_A or 0.08)
                 self.text:SetTextColor(1, 1, 1, 1)
             end
@@ -410,7 +431,7 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
         end)
         optionRow:SetScript("OnClick", function(self, mouseButton)
             if mouseButton ~= "LeftButton" or not SelectItem(self.item) then return end
-            row:Close()
+            if not opts.multiSelect then row:Close() end
         end)
 
         row.rows[index] = optionRow
@@ -588,6 +609,15 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     end
 
     function row:SetValue(value, silent)
+        if opts.multiSelect then
+            local set = {}
+            for key, on in pairs(type(value) == "table" and value or {}) do set[key] = on == true or nil end
+            self.currentValue = set
+            selectedText:SetText(MultiText())
+            RefreshRowStates()
+            if silent == false and opts.onChange then opts.onChange(set) end
+            return true
+        end
         for _, item in ipairs(self.items) do
             if item.value == value or item.text == value then
                 return SelectItem(item, silent ~= false)
@@ -720,6 +750,18 @@ function Controls.CreateDropdown(parent, addonKey, labelText, options, default, 
     Controls.EnableRightClickMouselook(row)
     Controls.EnableRightClickMouselook(button)
 
+    if opts.multiSelect then
+        row:SetValue(default, true)
+        row.label = label
+        row.button = button
+        row.selectedText = selectedText
+        row.listFrame = list
+        row.searchBox = search
+        row.scrollFrame = scroll
+        row.scrollChild = child
+        row.control = button
+        return row
+    end
     local selected
     for _, item in ipairs(row.items) do
         if item.value == default or item.text == default then

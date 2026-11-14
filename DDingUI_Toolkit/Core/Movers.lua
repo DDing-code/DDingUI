@@ -327,6 +327,8 @@ local DEFAULT_POSITIONS = {
     RaidDefensiveTracker = { x = 0, y = -250 },
     BloodlustStartMotion = { x = 0, y = 40 },
     PartyTracker = { x = -500, y = -110 },
+    CooldownTracker = { x = -260, y = -180 },
+    DefensiveTracker = { x = 260, y = -180 },
     PartyTracker_Mana = { x = 0, y = -150 },
     DeathAlert = { x = 0, y = 0 },
     SkyridingTracker = { x = 0, y = 0 },
@@ -339,6 +341,13 @@ local DEFAULT_POSITIONS = {
 }
 
 local function GetDisplayName(reg)
+    local mod = ns.modules and ns.modules[reg.module]
+    -- [REFACTOR] Skill tracker movers: frame 0 and the OmniCD extra bars.
+    if mod and mod.Spells and ns.SkillTracker then
+        local title = Locale("CT_SKILL_TRACKER", "Skill Tracker")
+        if mod.barIndex then return title .. " - " .. mod.barIndex .. " " .. ns.SkillTracker:BarName(mod.barIndex) end
+        if mod.kind == "common" then return title .. " - " .. Locale("CT_PARTY_FRAME", "Party Frame") end
+    end
     local labels = {
         CombatTimer = Locale("TAB_COMBATTIMER", "Combat Timer"),
         RaidBreakTimer = Locale("TAB_RAIDBREAKTIMER", "Raid Break Timer"),
@@ -353,6 +362,8 @@ local function GetDisplayName(reg)
         RaidDefensiveTracker = Locale("TAB_RAIDDEFENSIVETRACKER", "Raid Defensive Tracker"),
         BloodlustStartMotion = Locale("BLT_START_MOTION_ANCHOR", "Bloodlust Start HUD"),
         PartyTracker = Locale("TAB_PARTYTRACKER", "Party Tracker"),
+        CooldownTracker = Locale("CT_COOLDOWNS", "Cooldown Tracker"),
+        DefensiveTracker = Locale("CT_DEFENSIVES", "Defensive Tracker"),
         PartyTracker_Mana = Locale("PARTYTRACKER_HEALER_MANA", "Healer Mana"),
         DeathAlert = Locale("TAB_DEATHALERT", "Death Alert"),
         SkyridingTracker = Locale("TAB_SKYRIDINGTRACKER", "Skyriding Tracker"),
@@ -738,6 +749,7 @@ local function ShouldShowInPreview(reg)
     if type(previewState) == "function" then
         previewState = previewState(reg)
     end
+    if previewState == "hidden" then return false end
     if previewState == "combat" then
         return editPreviewCombat
     end
@@ -1086,6 +1098,8 @@ local function CreateMoverOverlay(reg)
     end)
     EnableRightClickMouselook(ov)
 
+    if type(reg.previewState) == "function" and reg.previewState(reg) == "hidden" then ov:Hide() end
+
     return ov
 end
 
@@ -1331,7 +1345,41 @@ end
 -- ============================================================
 -- ShowMovers / HideMovers
 -- ============================================================
+-- [REFACTOR] User groups participate in the existing editor, including save/undo/reset.
+function Movers:SyncSkillGroups()
+    local definitions = ns.SkillTracker:Definitions()
+    for index = #REG, 1, -1 do
+        local reg = REG[index]
+        if reg.skillGroup or reg.module == "CooldownTracker" or reg.module == "DefensiveTracker" then
+            if movers[reg.name] then movers[reg.name]:Hide() end
+            table.remove(REG, index)
+        end
+    end
+    for _, definition in ipairs(definitions) do
+        local _, moduleName, id = unpack(definition)
+        local mod = ns.modules[moduleName]
+        local bar = mod.barIndex
+        REG[#REG+1] = {
+            name=moduleName, module=moduleName, skillGroup=true,
+            dbPath=bar and ("CooldownTrace.extraBars." .. id .. ".position") or ("CooldownTrace." .. id .. ".position"),
+            posType="standard", defaultW=300, defaultH=180,
+            getFrame=function() mod:CreateFrame(); return mod.frame end,
+            previewState=function()
+                local modules = ns.db.profile.modules
+                if modules.SkillTracker == false then return "hidden" end
+                if bar then
+                    -- Unit bars follow the party frames; disabled bars have nothing to place.
+                    return (modules[moduleName] ~= true or ns.SkillTracker:Bar(bar).unitBar == true) and "hidden" or "combat"
+                end
+                local db = ns.db.profile.CooldownTrace[id]
+                return (db.attachTo == "party" and db.memberLayout ~= "all") and "hidden" or "combat"
+            end,
+        }
+    end
+end
+
 function Movers:ShowMovers()
+    if ns.SkillTracker then self:SyncSkillGroups() end
     LoadEditorSettings()
     if not remote then
         remote = BuildRemote()

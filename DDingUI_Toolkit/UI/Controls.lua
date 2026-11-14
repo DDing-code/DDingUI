@@ -254,6 +254,7 @@ function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, c
 
     local group = CreateFrame("Frame", nil, row)
     group:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -26)
+    group:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, -26)
     group:SetSize(width, 30)
 
     local buttons = {}
@@ -342,6 +343,15 @@ function Controls.CreateSegmentedControl(parent, addonKey, labelText, options, c
     row.label = label
     row.control = group
     row.buttons = buttons
+    -- [STYLE] Keep every choice inside the detail card when the window is resized.
+    row:SetScript("OnSizeChanged", function(_, available)
+        local cell = math.floor(available / count)
+        for index, button in ipairs(buttons) do
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", group, "TOPLEFT", (index - 1) * cell, 0)
+            button:SetWidth(index == count and available - (index - 1) * cell or cell)
+        end
+    end)
     Refresh()
     SetTooltip(row, opts.tooltip)
     EnableRightClickMouselook(row)
@@ -590,10 +600,16 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
         local range = maximum - minimum
         local progress = range > 0 and ((value - minimum) / range) or 0
         fill:SetWidth(math.max(minFill, (track:GetWidth() or 1) * progress))
-        valueBox:SetText(string.format(formatString, value))
+        -- [STYLE] opts.percent shows 0.6 as "60%" (OmniCD icon size).
+        if opts.percent then valueBox:SetText(string.format("%d%%", math.floor(value * 100 + 0.5)))
+        else valueBox:SetText(string.format(formatString, value)) end
     end
 
     local function SetValue(value, silent)
+        if opts.percent and type(value) == "string" then
+            local number = tonumber((value:gsub("%%", "")))
+            value = number and number / 100 or currentValue
+        end
         value = Normalize(value)
         local changed = currentValue ~= value
         currentValue = value
@@ -670,6 +686,7 @@ function Controls.CreateSlider(parent, addonKey, labelText, minimum, maximum, st
     row.slider = slider
     row.valueBox = valueBox
     row.control = slider
+    row.track = track -- [STYLE] card cells re-anchor the track under the label
     SetValue(default, true)
     SetTooltip(row, opts.tooltip)
     EnableRightClickMouselook(row)
