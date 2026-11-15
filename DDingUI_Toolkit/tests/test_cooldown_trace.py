@@ -1,5 +1,6 @@
 """실제 추적 엔진을 실행해 비밀값, 출처, 장부, 모듈 분리와 편집을 검사한다."""
 from pathlib import Path
+import pytest
 
 from ui_runtime import runtime
 from test_edit_mode import HARNESS, STYLELIB
@@ -342,6 +343,8 @@ def trace_runtime(locale="koKR", enabled=True, hidden=False):
     load(lua, "Modules/CooldownTrace/CooldownTrace.lua")
     load(lua, "Modules/CooldownTrace/Groups.lua")
     lua.execute('''
+        -- Tracking behavior tests opt in; upgrade tests replace this profile before real startup.
+        ns.db.profile.modules.SkillTracker=true
         ns.SkillTracker:Initialize()
         -- Single-category engines exercise the shared tracker without the OmniCD frame routing.
         for _, info in ipairs({{'CooldownTracker','cooldowns','CT_COOLDOWNS'},{'DefensiveTracker','defensives','CT_DEFENSIVES'}}) do
@@ -991,6 +994,38 @@ def test_live_first_enable_in_combat_finishes_on_regen_without_reload():
     ''')
 
 
+@pytest.mark.parametrize("fresh", [False, True])
+def test_new_tracker_stays_disabled_through_real_core_startup(fresh):
+    lua = trace_runtime(enabled=False)
+    lua.globals().fresh = fresh
+    lua.execute('''
+        if fresh then DDingUIToolkitDB=nil
+        else DDingUIToolkitDB={profile={modules={PartyTracker=true}}} end
+        C_AddOns.GetAddOnMetadata=function() return 'test' end
+        function GetRealmName() return 'Test realm' end
+        StaticPopupDialogs={}
+    ''')
+    for path in ('Core/Core.lua', 'Modules/CooldownTrace/CooldownTrace.lua', 'Modules/CooldownTrace/Groups.lua'):
+        load(lua, path)
+    lua.execute('''
+        ns.DDingToolKit.CreateMinimapButton=function() end
+        ns.DDingToolKit:OnInitialize(); ns.DDingToolKit:OnEnable()
+        assert(ns.db.profile.modules.SkillTracker==false, 'new tracking must require opt-in')
+        assert(ns.db.profile.modules.PartyTracker==true)
+        for _,definition in ipairs(ns.SkillTracker:Definitions()) do
+            local mod=ns.modules[definition[2]]
+            assert(not mod.running and not mod.events and not mod.frame)
+        end
+        ns.SkillTracker:SetEnabled(nil,true)
+        assert(ns.modules.SkillTrace_common.running)
+        ns.SkillTracker:Initialize()
+        assert(ns.db.profile.modules.SkillTracker==true)
+        ns.SkillTracker:SetEnabled(nil,false)
+        ns.SkillTracker:Initialize()
+        assert(ns.db.profile.modules.SkillTracker==false)
+    ''')
+
+
 def test_disabled_master_survives_real_core_startup_and_hides_edit_movers():
     lua = trace_runtime(enabled=False)
     lua.execute('''
@@ -1249,6 +1284,7 @@ def test_saved_groups_migrate_before_real_core_startup():
         db.frameVersion=nil
         db.groups={'group1'}
         db.group1={name='Saved',spells={PRIEST={10060,33206}},position={x=127,y=55},iconSize=38}
+        ns.db.profile.modules.SkillTracker=nil
         ns.db.profile.modules.SkillTrace_group1=true
         DDingUIToolkitDB={profile=ns:DeepCopy(ns.db.profile)}
         C_AddOns.GetAddOnMetadata=function() return 'test' end

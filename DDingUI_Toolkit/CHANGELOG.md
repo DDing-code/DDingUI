@@ -1,5 +1,20 @@
 # DDingUI Toolkit Changelog
 
+## 2.2.5.1
+
+Release date: 2026-11-15
+Scope: Changes after the 2.2.5 release commit 19772d2.
+
+### 한국어
+
+- **스킬 추적:** 새로 설치하거나 업데이트했을 때 사용자가 켜지 않은 스킬 추적이 자동으로 활성화되던 문제를 수정했습니다. 이전 추적 기능을 사용하지 않았다면 직접 켤 때까지 꺼진 상태를 유지합니다.
+- **기존 설정 유지:** 저장된 켜기·끄기 선택과 이전 버전에서 사용 중이던 추적 그룹을 유지합니다. 이전 업데이트로 이미 켜진 경우에는 스킬 추적의 ‘사용’을 한 번 꺼 주세요.
+
+### English
+
+- **Skill tracking:** Fixed skill tracking being enabled automatically on a fresh install or update without opting in. If no legacy tracker was active, it now stays disabled until you enable it.
+- **Existing settings:** Preserves saved on/off choices and active legacy tracking groups. If an earlier update already enabled skill tracking, turn off its Use switch once.
+
 ## 2.2.5
 
 Release date: 2026-11-14

@@ -273,8 +273,18 @@ end
 
 function Groups:Initialize()
     local db, modules = ns.db.profile.CooldownTrace, ns.db.profile.modules
-    -- [REFACTOR] The master switch preserves every existing per-group selection.
-    if modules.SkillTracker == nil then modules.SkillTracker = true end
+    -- [REFACTOR] Only active legacy trackers opt in; the common frame default is not user consent.
+    if modules.SkillTracker == nil then
+        modules.SkillTracker = false
+        for name, enabled in pairs(modules) do
+            if enabled == true and type(name) == "string" and (name == "CooldownTracker"
+                or name == "DefensiveTracker" or name == "SkillTrace_cc"
+                or name:match("^SkillTrace_group%d+$") or name:match("^SkillTrace_bar[1-8]$")) then
+                modules.SkillTracker = true
+                break
+            end
+        end
+    end
     NormalizeSelections(db, modules)
     SanitizeFrames(db)
     MigrateFrames(db, modules)
